@@ -21,7 +21,7 @@ def get_model():
     """Lazy load the custom CNN TFLite model to speed up startup/imports and handle path dynamically."""
     global _model
     if _model is None:
-        model_path = os.path.join(os.path.dirname(__file__), "models", "logmel2d_best.tflite")
+        model_path = os.path.join(os.path.dirname(__file__), "models", "distress_end2end.tflite")
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Model file not found at {model_path}")
         _model = tf.lite.Interpreter(model_path=model_path)
@@ -95,95 +95,64 @@ def predict_yamnet(audio_path):
         
     return results
 
-def extract_mel_spectrogram(file_path):
-    """
-    Extract Mel spectrogram from the audio file.
-    Resamples to 16000Hz, computes mel spectrogram with 128 mels,
-    converts to dB scale, and crops/pads to exactly 128 time frames.
-    """
-    # Load audio
-    audio, sr = librosa.load(
-        file_path,
-        sr=16000
-    )
-
-    # We want exactly 2.0 seconds of audio, meaning 32000 samples.
-    # We can truncate or pad the audio.
-    target_samples = 32000
-    if len(audio) > target_samples:
-        audio = audio[:target_samples]
-    elif len(audio) < target_samples:
-        audio = np.pad(audio, (0, target_samples - len(audio)), mode='constant')
-
-    # Mel spectrogram
-    mel = librosa.feature.melspectrogram(
-        y=audio,
-        sr=sr,
-        n_mels=64,
-        n_fft=400,
-        hop_length=160,
-        power=2.0
-    )
-
-    # Convert to log-scale decibel values
-    mel_db = librosa.power_to_db(
-        mel,
-        ref=np.max
-    ).astype(np.float32)
-
-    # Standardize
-    mel_db = (mel_db - mel_db.mean()) / (mel_db.std() + 1e-6)
-
-    # Crop to maximum 201 frames
-    mel_db = mel_db[:, :201]
-
-    # Pad if shorter than 201 frames
-    if mel_db.shape[1] < 201:
-        pad_width = 201 - mel_db.shape[1]
-        mel_db = np.pad(
-            mel_db,
-            pad_width=((0, 0), (0, pad_width)),
-            mode='constant'
-        )
-
-    return mel_db
-
 def predict_distress(audio_path):
     """
     Predict distress class (neutral vs scream) and return confidence.
-    Supports both 2-output softmax and 1-output sigmoid networks.
+    Now uses the end-to-end model which takes raw waveforms and computes Mel inside TFLite.
+    Evaluates in 2-second (32000 sample) chunks and returns the max distress score.
     """
-    spec = extract_mel_spectrogram(audio_path)
+    # Load audio
+    audio, sr = librosa.load(audio_path, sr=16000, mono=True)
 
-    # Expand dimensions for model input: (1, 64, 201, 1)
-    spec = np.expand_dims(spec, axis=-1)
-    spec = np.expand_dims(spec, axis=0)
+    # We want to chunk into 2.0 seconds of audio, meaning 32000 samples.
+    target_samples = 32000
+    
+    chunks = []
+    for i in range(0, len(audio), target_samples):
+        chunk = audio[i:i+target_samples]
+        if len(chunk) < target_samples:
+            chunk = np.pad(chunk, (0, target_samples - len(chunk)), mode='constant')
+        chunks.append(chunk)
+        
+    if not chunks:
+        chunks.append(np.zeros(target_samples, dtype=np.float32))
 
-    # Load model and predict
+    # Load model
     interpreter = get_model()
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()
     
-    interpreter.set_tensor(input_details[0]['index'], spec.astype(np.float32))
-    interpreter.invoke()
-    prediction = interpreter.get_tensor(output_details[0]['index'])
+    max_scream_confidence = 0.0
+    best_label = "neutral"
 
-    # Handle output shapes dynamically
-    num_classes = prediction.shape[-1]
-    
-    if num_classes == 1:
-        # Binary classification with 1 sigmoid output (predicts probability of index 1: 'scream')
-        prob_scream = float(prediction[0][0])
-        if prob_scream > 0.5:
-            predicted_class = 1
-            confidence = prob_scream
+    for chunk in chunks:
+        # Expand dimensions for model input: (1, 32000)
+        waveform = np.expand_dims(chunk, axis=0)
+        
+        interpreter.set_tensor(input_details[0]['index'], waveform.astype(np.float32))
+        interpreter.invoke()
+        prediction = interpreter.get_tensor(output_details[0]['index'])
+
+        # Handle output shapes dynamically
+        num_classes = prediction.shape[-1]
+        
+        if num_classes == 1:
+            # Binary classification with 1 sigmoid output (predicts probability of index 1: 'scream')
+            prob_scream = float(prediction[0][0])
+            if prob_scream > max_scream_confidence:
+                max_scream_confidence = prob_scream
+                best_label = "scream" if prob_scream > 0.5 else "neutral"
         else:
-            predicted_class = 0
-            confidence = 1.0 - prob_scream
-    else:
-        # Multi-class classification (softmax over 2 or more outputs)
-        predicted_class = int(np.argmax(prediction))
-        confidence = float(np.max(prediction))
+            # Multi-class classification (softmax over 2 or more outputs)
+            prob_scream = float(prediction[0][3]) # Index 3 is 'scream' in LABELS
+            predicted_class = int(np.argmax(prediction))
+            if prob_scream > max_scream_confidence:
+                max_scream_confidence = prob_scream
+                best_label = LABELS.get(predicted_class, f"unknown_class_{predicted_class}")
 
-    label = LABELS.get(predicted_class, f"unknown_class_{predicted_class}")
-    return label, confidence
+    # If it's multi-class, we want to return the highest scream confidence and its corresponding label
+    # Even if max_scream_confidence isn't the argmax, the backend will use this confidence for logic
+    if max_scream_confidence > 0.5:
+        return "scream", max_scream_confidence
+    else:
+        return best_label, max_scream_confidence

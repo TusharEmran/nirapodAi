@@ -17,7 +17,7 @@ async def analyze_audio(file: UploadFile = File(...)):
     1. YAMNet for contextual/safe sound detection
     2. Custom CNN for distress/scream detection
     """
-    if not file.filename.endswith(('.wav', '.mp3', '.ogg', '.flac')):
+    if not file.filename.endswith(('.wav', '.mp3', '.ogg', '.flac', '.m4a', '.mp4', '.aac', '.3gp')):
         raise HTTPException(status_code=400, detail="Invalid file type. Please upload a valid audio file.")
         
     temp_path = None
