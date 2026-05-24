@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "client",
-    "slug": "client",
+    "slug": "sentinel-ai",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -19,7 +19,13 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ],
+      "package": "com.blanktusharsorganization.sentinelai"
     },
     "web": {
       "output": "static",
@@ -27,6 +33,18 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera"
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "enableBackgroundPlayback": true
+        }
+      ],
       [
         "expo-splash-screen",
         {
@@ -43,6 +61,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "b945ab81-137c-44cd-b6a9-b107d5cf52bd"
+      }
+    },
+    "owner": "blanktushars-organization"
   }
 }

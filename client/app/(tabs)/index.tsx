@@ -1,18 +1,17 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, Image, Pressable, ScrollView, StyleSheet, Text, View, Linking } from 'react-native';
+import { Animated, AppState, BackHandler, Easing, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { BlurView } from 'expo-blur';
+import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import MapView, { Marker } from 'react-native-maps';
 
-const googleMapApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAP_API;
-
 const quickActions = [
-  { label: 'Record', icon: 'microphone' },
-  { label: 'Scan my\narea', icon: 'radar' },
-  { label: 'Snap', icon: 'camera' },
-  { label: 'More', icon: 'dots-horizontal' },
+  { id: 'connectWatch', label: 'Connect\nwatch', icon: 'watch', accessibilityLabel: 'Connect smart watch for BP and heart rate monitoring' },
+  { id: 'siren', label: 'Trigger\nsiren', icon: 'alarm-light', accessibilityLabel: 'Trigger loud siren for area scanning' },
+  { id: 'snap', label: 'Snap', icon: 'camera', accessibilityLabel: 'Take a quick photo' },
+  { id: 'more', label: 'More', icon: 'dots-horizontal', accessibilityLabel: 'Open more quick actions' },
 ] as const;
 
 const contacts = [
@@ -20,33 +19,51 @@ const contacts = [
   { name: 'Abena Kyekyeku', phone: '+233...', initials: 'AK', avatar: '#C9A56C' },
 ] as const;
 
+const sirenPassword = '122';
+const sirenAudioSource = require('../../assets/images/soundreality-civil-defense-siren-128262.mp3');
+
 export default function HomeScreen() {
   const router = useRouter();
   const [showEmergencyOverlay, setShowEmergencyOverlay] = useState(false);
+  const [showSirenOverlay, setShowSirenOverlay] = useState(false);
+  const [sirenPasswordInput, setSirenPasswordInput] = useState('');
+  const [sirenPasswordError, setSirenPasswordError] = useState('');
+  const [sirenStartedAt, setSirenStartedAt] = useState<number | null>(null);
+  const [sirenElapsedSeconds, setSirenElapsedSeconds] = useState(0);
   const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const pulseOne = useRef(new Animated.Value(0)).current;
   const pulseTwo = useRef(new Animated.Value(0)).current;
+  const sirenPlayerRef = useRef<ReturnType<typeof createAudioPlayer> | null>(null);
 
   useEffect(() => {
     let isMounted = true;
 
     const loadLocation = async () => {
-      const permissions = await Location.getForegroundPermissionsAsync();
-      const nextPermissions = permissions.status === 'granted'
-        ? permissions
-        : await Location.requestForegroundPermissionsAsync();
+      try {
+        const servicesEnabled = await Location.hasServicesEnabledAsync();
+        if (!servicesEnabled) {
+          return;
+        }
 
-      if (!isMounted || nextPermissions.status !== 'granted') {
+        const permissions = await Location.getForegroundPermissionsAsync();
+        const nextPermissions = permissions.status === 'granted'
+          ? permissions
+          : await Location.requestForegroundPermissionsAsync();
+
+        if (!isMounted || nextPermissions.status !== 'granted') {
+          return;
+        }
+
+        const position = await Location.getCurrentPositionAsync({});
+
+        if (isMounted) {
+          setCurrentLocation({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          });
+        }
+      } catch {
         return;
-      }
-
-      const position = await Location.getCurrentPositionAsync({});
-
-      if (isMounted) {
-        setCurrentLocation({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        });
       }
     };
 
@@ -58,6 +75,118 @@ export default function HomeScreen() {
   }, []);
 
   const mapRef = useRef<MapView>(null);
+
+  useEffect(() => {
+    return () => {
+      sirenPlayerRef.current?.remove();
+      sirenPlayerRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const configureAudio = async () => {
+      await setAudioModeAsync({
+        playsInSilentMode: true,
+        shouldPlayInBackground: true,
+        interruptionMode: 'doNotMix',
+      });
+    };
+
+    void configureAudio();
+  }, []);
+
+  useEffect(() => {
+    if (!showSirenOverlay) {
+      return;
+    }
+
+    const handleBackPress = () => true;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', handleBackPress);
+
+    return () => subscription.remove();
+  }, [showSirenOverlay]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active' && sirenPlayerRef.current) {
+        setShowSirenOverlay(true);
+      }
+    });
+
+    return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    if (!showSirenOverlay || sirenStartedAt === null) {
+      setSirenElapsedSeconds(0);
+      return;
+    }
+
+    setSirenElapsedSeconds(Math.max(0, Math.floor((Date.now() - sirenStartedAt) / 1000)));
+
+    const interval = setInterval(() => {
+      setSirenElapsedSeconds(Math.max(0, Math.floor((Date.now() - sirenStartedAt) / 1000)));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [showSirenOverlay, sirenStartedAt]);
+
+  const startSiren = async () => {
+    try {
+      setSirenPasswordError('');
+      setSirenStartedAt(Date.now());
+      setShowSirenOverlay(true);
+      await setAudioModeAsync({
+        playsInSilentMode: true,
+        shouldPlayInBackground: true,
+        interruptionMode: 'doNotMix',
+      });
+
+      if (!sirenPlayerRef.current) {
+        sirenPlayerRef.current = createAudioPlayer(sirenAudioSource);
+      }
+
+      const player = sirenPlayerRef.current;
+
+      player.loop = true;
+      player.volume = 1;
+      player.seekTo(0).catch(() => undefined);
+      player.setActiveForLockScreen(true, {
+        title: 'Emergency alert',
+      }, {
+        showSeekBackward: false,
+        showSeekForward: false,
+      });
+      player.play();
+    } catch (error) {
+      setSirenPasswordError(error instanceof Error ? error.message : 'Unable to start the siren sound right now.');
+    }
+  };
+
+  const stopSiren = async () => {
+    if (sirenPasswordInput !== sirenPassword) {
+      setSirenPasswordError('Wrong password. Siren is still active.');
+      return;
+    }
+
+    try {
+      const player = sirenPlayerRef.current;
+
+      if (player) {
+        player.loop = false;
+        player.pause();
+        player.clearLockScreenControls();
+        player.remove();
+        sirenPlayerRef.current = null;
+      }
+    } finally {
+      setSirenPasswordInput('');
+      setSirenPasswordError('');
+      setSirenStartedAt(null);
+      setSirenElapsedSeconds(0);
+      setShowSirenOverlay(false);
+    }
+  };
 
   useEffect(() => {
     const createPulse = (value: Animated.Value, delay: number) =>
@@ -220,7 +349,26 @@ export default function HomeScreen() {
         <View style={styles.contentSection}>
           <View style={styles.quickActionsRow}>
             {quickActions.map((action) => (
-              <Pressable key={action.label} style={styles.quickAction}>
+              <Pressable
+                key={action.id}
+                style={styles.quickAction}
+                onPress={() => {
+                  if (action.id === 'connectWatch') {
+                    router.push('/watch');
+                    return;
+                  }
+
+                  if (action.id === 'snap') {
+                    router.push('/snap');
+                    return;
+                  }
+
+                  if (action.id === 'siren') {
+                    void startSiren();
+                  }
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={action.accessibilityLabel}>
                 <View style={styles.quickActionBox}>
                   <MaterialCommunityIcons name={action.icon as never} size={30} color="#FFFFFF" />
                 </View>
@@ -256,6 +404,73 @@ export default function HomeScreen() {
           </View>
         </View>
       </ScrollView>
+
+      <Modal
+        visible={showSirenOverlay}
+        transparent={true}
+        animationType="fade"
+        statusBarTranslucent={true}
+        onRequestClose={() => {
+          setSirenPasswordError('Enter the cancel password to stop the siren.');
+        }}>
+        <View style={styles.sirenOverlayContainer}>
+          <BlurView
+            intensity={30}
+            tint="dark"
+            experimentalBlurMethod="dimezisBlurView"
+            style={StyleSheet.absoluteFill}
+          />
+          <View style={styles.sirenOverlayScrim} />
+
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={styles.sirenOverlayContent}>
+            <View style={styles.sirenCard}>
+              <View style={styles.sirenHeaderRow}>
+                <View style={styles.sirenIconWrap}>
+                  <MaterialCommunityIcons name="alarm-light" size={22} color="#FFFFFF" />
+                </View>
+                <View style={styles.sirenHeaderTextWrap}>
+                  <Text style={styles.sirenTitle}>Siren active</Text>
+                  <Text style={styles.sirenSubtitle}>A loud remote alarm is playing to alert nearby people.</Text>
+                </View>
+              </View>
+
+              <View style={styles.sirenStatusStrip}>
+                <View style={styles.sirenStatusDot} />
+                <Text style={styles.sirenStatusText}>LOUD ALARM LIVE</Text>
+                <Text style={styles.sirenStatusTime}>{String(Math.floor(sirenElapsedSeconds / 60)).padStart(2, '0')}:{String(sirenElapsedSeconds % 60).padStart(2, '0')}</Text>
+              </View>
+
+              <Text style={styles.sirenBodyText}>
+                Enter the cancel password to stop the sound. The siren will keep looping until the correct password is provided.
+              </Text>
+
+              <View style={styles.sirenInputWrap}>
+                <Text style={styles.sirenInputLabel}>Cancel password</Text>
+                <TextInput
+                  value={sirenPasswordInput}
+                  onChangeText={(nextValue) => {
+                    setSirenPasswordInput(nextValue);
+                    if (sirenPasswordError) {
+                      setSirenPasswordError('');
+                    }
+                  }}
+                  secureTextEntry={true}
+                  placeholder="Enter password"
+                  placeholderTextColor="#B89BA3"
+                  style={styles.sirenInput}
+                />
+                {sirenPasswordError ? <Text style={styles.sirenError}>{sirenPasswordError}</Text> : null}
+              </View>
+
+              <Pressable style={styles.sirenStopButton} onPress={() => void stopSiren()} accessibilityRole="button">
+                <Text style={styles.sirenStopButtonText}>Stop siren</Text>
+              </Pressable>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
 
       {showEmergencyOverlay ? (
         <View style={styles.overlayContainer} pointerEvents="auto">
@@ -303,6 +518,131 @@ const styles = StyleSheet.create({
   content: {
     paddingBottom: 132,
     backgroundColor: '#FFFFFF',
+  },
+  sirenOverlayContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  sirenOverlayScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(34, 12, 17, 0.48)',
+  },
+  sirenOverlayContent: {
+    width: '100%',
+    maxWidth: 360,
+  },
+  sirenCard: {
+    borderRadius: 28,
+    backgroundColor: 'rgba(255,255,255,0.99)',
+    padding: 18,
+    gap: 14,
+    shadowColor: '#7A2434',
+    shadowOpacity: 0.24,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 14 },
+    elevation: 12,
+  },
+  sirenHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  sirenIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#C84D61',
+  },
+  sirenHeaderTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  sirenTitle: {
+    color: '#1D1D1F',
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: -0.4,
+  },
+  sirenSubtitle: {
+    color: '#7A6168',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  sirenStatusStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#C84D61',
+  },
+  sirenStatusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: '#FFFFFF',
+  },
+  sirenStatusText: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 1.1,
+  },
+  sirenStatusTime: {
+    color: '#FFF0F3',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  sirenBodyText: {
+    color: '#6E5A60',
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  sirenInputWrap: {
+    gap: 8,
+  },
+  sirenInputLabel: {
+    color: '#1D1D1F',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  sirenInput: {
+    minHeight: 52,
+    borderRadius: 16,
+    backgroundColor: '#FFF8F9',
+    borderWidth: 1,
+    borderColor: 'rgba(200,77,97,0.14)',
+    paddingHorizontal: 14,
+    color: '#1D1D1F',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  sirenError: {
+    color: '#B84A5A',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+  },
+  sirenStopButton: {
+    minHeight: 52,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1D1D1F',
+  },
+  sirenStopButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
   },
   overlayContainer: {
     ...StyleSheet.absoluteFillObject,

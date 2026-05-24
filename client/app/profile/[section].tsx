@@ -43,7 +43,7 @@ const sectionConfig: Record<string, SectionConfig> = {
     'safety-settings': {
         title: 'Safety settings',
         subtitle: 'Tweak emergency behavior',
-        icon: 'shield-cog-outline',
+        icon: 'shield-cog',
         helper: 'Adjust how quickly SOS activates and how your location is shared.',
         fields: [
             { label: 'SOS delay', placeholder: 'Seconds before alert', value: '10 seconds' },

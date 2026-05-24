@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ScrollView, StyleSheet, Text, TextInput, View, Pressable } from 'react-native';
 
@@ -32,8 +33,9 @@ const contacts: Record<string, { name: string; subtitle: string }> = {
 
 export default function ChatThreadScreen() {
     const router = useRouter();
-    const params = useLocalSearchParams<{ id?: string }>();
+    const params = useLocalSearchParams<{ id?: string; photoUri?: string }>();
     const conversation = params.id ? contacts[params.id] ?? { name: 'Message', subtitle: 'Conversation' } : { name: 'Message', subtitle: 'Conversation' };
+    const photoUri = typeof params.photoUri === 'string' ? params.photoUri : null;
 
     return (
         <View style={styles.screen}>
@@ -56,6 +58,14 @@ export default function ChatThreadScreen() {
                 <View style={styles.threadMeta}>
                     <Text style={styles.threadMetaText}>Today • Safe channel</Text>
                 </View>
+
+                {photoUri ? (
+                    <View style={[styles.messageBubble, styles.messageBubbleMine, styles.photoBubble]}>
+                        <Image source={{ uri: photoUri }} style={styles.photoPreview} contentFit="cover" />
+                        <Text style={[styles.messageText, styles.messageTextMine]}>Snap sent from Her Shield.</Text>
+                        <Text style={[styles.messageTime, styles.messageTimeMine]}>Just now</Text>
+                    </View>
+                ) : null}
 
                 {threadMessages.map((message) => (
                     <View
@@ -192,6 +202,15 @@ const styles = StyleSheet.create({
     messageTimeMine: {
         color: '#A46A74',
         alignSelf: 'flex-end',
+    },
+    photoBubble: {
+        gap: 10,
+    },
+    photoPreview: {
+        width: '100%',
+        height: 220,
+        borderRadius: 18,
+        backgroundColor: '#D38B97',
     },
     composer: {
         flexDirection: 'row',

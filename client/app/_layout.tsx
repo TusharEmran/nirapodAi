@@ -30,7 +30,6 @@ export default function RootLayout() {
     }
 
     void NavigationBar.setVisibilityAsync('hidden');
-    void NavigationBar.setBehaviorAsync('overlay-swipe');
   }, []);
 
   return (
@@ -50,6 +49,12 @@ export default function RootLayout() {
         />
         <Stack.Screen
           name="chat/[id]"
+          options={{
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen
+          name="snap"
           options={{
             headerShown: false,
           }}

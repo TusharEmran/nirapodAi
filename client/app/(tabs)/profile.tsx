@@ -11,7 +11,7 @@ const profileStats = [
 const profileActions = [
     { id: '1', label: 'Edit profile', icon: 'account-edit-outline', route: 'edit-profile' },
     { id: '2', label: 'Emergency contacts', icon: 'account-multiple-outline', route: 'emergency-contacts' },
-    { id: '3', label: 'Safety settings', icon: 'shield-cog-outline', route: 'safety-settings' },
+    { id: '3', label: 'Safety settings', icon: 'shield-cog', route: 'safety-settings' },
     { id: '4', label: 'Privacy controls', icon: 'lock-outline', route: 'privacy-controls' },
 ] as const;
 
