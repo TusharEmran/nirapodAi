@@ -145,7 +145,7 @@ export default function CommunityScreen() {
                                 <Text style={styles.unreadBadgeText}>{unreadCount}</Text>
                             </View>
                         ) : null}
-                    <Text style={styles.sectionMeta}>{loading ? 'Loading...' : `${visibleContacts.length} contacts`}</Text>
+                        <Text style={styles.sectionMeta}>{loading ? 'Loading...' : `${visibleContacts.length} contacts`}</Text>
                     </View>
                 </View>
 
