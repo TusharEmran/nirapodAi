@@ -1,5 +1,6 @@
+import { Audio } from 'expo-av';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 const liveMetrics = [
@@ -45,9 +46,82 @@ const recentEvents = [
 export default function WatchScreen() {
     const [isPaired, setIsPaired] = useState(false);
     const [isAlertActive, setIsAlertActive] = useState(false);
+    const [recording, setRecording] = useState<Audio.Recording | null>(null);
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
 
     const nextActionLabel = useMemo(() => (isPaired ? 'Sync watch data' : 'Connect watch'), [isPaired]);
     const monitoringStatus = isAlertActive ? 'Suspicious pattern detected' : 'Monitoring normal range';
+
+    const analyzeAudio = async () => {
+        if (recording || isAnalyzing) return;
+        try {
+            console.log('Requesting permissions..');
+            await Audio.requestPermissionsAsync();
+            await Audio.setAudioModeAsync({
+                allowsRecordingIOS: true,
+                playsInSilentModeIOS: true,
+            });
+
+            console.log('Starting recording..');
+            const { recording: newRecording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+            setRecording(newRecording);
+            
+            // Record for exactly 6 seconds
+            setTimeout(async () => {
+                try {
+                    console.log('Stopping recording..');
+                    setRecording(null);
+                    await newRecording.stopAndUnloadAsync();
+                    const uri = newRecording.getURI();
+                    console.log('Recording stopped and stored at', uri);
+                    
+                    if (!uri) return;
+                    
+                    setIsAnalyzing(true);
+                    
+                    const formData = new FormData();
+                    formData.append('file', {
+                        uri: uri,
+                        name: 'audio.m4a',
+                        type: 'audio/m4a'
+                    } as any);
+
+                    console.log('Uploading to backend...');
+                    const response = await fetch('http://192.168.0.106:8000/analyze', {
+                        method: 'POST',
+                        body: formData,
+                        headers: {
+                            'Content-Type': 'multipart/form-data',
+                        },
+                    });
+                    
+                    const result = await response.json();
+                    console.log('Result:', result);
+                    
+                    setIsAnalyzing(false);
+                    
+                    if (result.status === 'SCREAM') {
+                        setIsAlertActive(true);
+                        Alert.alert(
+                            'Distress Detected!', 
+                            `Prediction: ${result.cnn_prediction.label} (${(result.cnn_prediction.confidence * 100).toFixed(1)}%)\nSafe Sounds Filter: ${result.yamnet_context.safe_score_aggregate.toFixed(2)}`
+                        );
+                    } else {
+                        Alert.alert('Safe', 'No distress detected in the audio.');
+                        setIsAlertActive(false);
+                    }
+                    
+                } catch (err) {
+                    setIsAnalyzing(false);
+                    console.error('Failed to stop recording or upload', err);
+                    Alert.alert('Error', 'Failed to analyze audio');
+                }
+            }, 6000);
+            
+        } catch (err) {
+            console.error('Failed to start recording', err);
+        }
+    };
 
     return (
         <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
@@ -85,22 +159,14 @@ export default function WatchScreen() {
                 </Pressable>
                 <View style={styles.heroButtonRow}>
                     <Pressable
-                        style={styles.secondaryHeroButton}
-                        onPress={() => {
-                            setIsAlertActive((currentValue) => {
-                                const nextValue = !currentValue;
-                                Alert.alert(
-                                    nextValue ? 'Suspicious reading detected' : 'Vitals back to normal',
-                                    nextValue
-                                        ? 'The watch has flagged a sudden change in heart rate and blood pressure.'
-                                        : 'The live readings are back in the safe range.',
-                                );
-                                return nextValue;
-                            });
-                        }}
+                        style={[styles.secondaryHeroButton, (recording || isAnalyzing) && { opacity: 0.5 }]}
+                        onPress={analyzeAudio}
+                        disabled={!!recording || isAnalyzing}
                         accessibilityRole="button">
-                        <MaterialCommunityIcons name={isAlertActive ? 'shield-alert' : 'alert-circle-outline'} size={18} color="#C84D61" />
-                        <Text style={styles.secondaryHeroButtonText}>{isAlertActive ? 'Clear alert' : 'Simulate suspicious reading'}</Text>
+                        <MaterialCommunityIcons name={recording ? 'record-circle' : (isAnalyzing ? 'loading' : 'microphone')} size={18} color="#C84D61" />
+                        <Text style={styles.secondaryHeroButtonText}>
+                            {recording ? 'Recording 6s...' : (isAnalyzing ? 'Analyzing...' : 'Test AI Audio Safety')}
+                        </Text>
                     </Pressable>
                 </View>
             </View>
