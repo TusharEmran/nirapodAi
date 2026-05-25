@@ -1,41 +1,113 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ScrollView, StyleSheet, Text, TextInput, View, Pressable } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-const threadMessages = [
-    {
-        id: '1',
-        sender: 'them',
-        text: 'Are you okay? I saw your live location update.',
-        time: '8:12 PM',
-    },
-    {
-        id: '2',
-        sender: 'me',
-        text: 'I opened the emergency screen and shared my location.',
-        time: '8:13 PM',
-    },
-    {
-        id: '3',
-        sender: 'them',
-        text: 'Stay where you are. I am heading there now.',
-        time: '8:13 PM',
-    },
-] as const;
-
-const contacts: Record<string, { name: string; subtitle: string }> = {
-    '1': { name: 'Mom', subtitle: 'Trusted contact' },
-    '2': { name: 'Emergency Contact', subtitle: 'Live location on' },
-    '3': { name: 'Police Hotline', subtitle: 'Assigned officer' },
-    '4': { name: 'Best Friend', subtitle: 'On the way' },
-};
+import { fetchChatThread, sendChatMessage, type ChatMessage, type ChatThreadDetails } from '@/lib/auth-api';
+import { useAuth } from '@/providers/auth-provider';
 
 export default function ChatThreadScreen() {
     const router = useRouter();
+    const { token } = useAuth();
     const params = useLocalSearchParams<{ id?: string; photoUri?: string }>();
-    const conversation = params.id ? contacts[params.id] ?? { name: 'Message', subtitle: 'Conversation' } : { name: 'Message', subtitle: 'Conversation' };
     const photoUri = typeof params.photoUri === 'string' ? params.photoUri : null;
+    const [thread, setThread] = useState<ChatThreadDetails | null>(null);
+    const [message, setMessage] = useState('');
+    const [loading, setLoading] = useState(true);
+    const [sending, setSending] = useState(false);
+    const [errorMessage, setErrorMessage] = useState('');
+    const [photoInjected, setPhotoInjected] = useState(false);
+
+    const messages = useMemo<ChatMessage[]>(() => thread?.messages || [], [thread]);
+    const conversationName = thread?.name || 'Message';
+    const conversationSubtitle = thread?.subtitle || 'Conversation';
+
+    useEffect(() => {
+        if (!token || !params.id || photoUri) {
+            setLoading(false);
+            return;
+        }
+
+        let mounted = true;
+
+        const loadThread = async () => {
+            try {
+                const response = await fetchChatThread(token, params.id as string);
+                if (mounted) {
+                    setThread(response.thread);
+                }
+            } catch (error) {
+                if (mounted) {
+                    setErrorMessage(error instanceof Error ? error.message : 'Unable to load conversation.');
+                }
+            } finally {
+                if (mounted) {
+                    setLoading(false);
+                }
+            }
+        };
+
+        void loadThread();
+
+        return () => {
+            mounted = false;
+        };
+    }, [params.id, token]);
+
+    useEffect(() => {
+        if (!token || !params.id || !photoUri || photoInjected) {
+            return;
+        }
+
+        let mounted = true;
+
+        const postPhoto = async () => {
+            try {
+                const response = await sendChatMessage(token, params.id as string, {
+                    imageUrl: photoUri,
+                    text: 'Snap sent from Her Shield.',
+                });
+
+                if (mounted) {
+                    setThread(response.thread);
+                    setPhotoInjected(true);
+                }
+            } catch (error) {
+                if (mounted) {
+                    setErrorMessage(error instanceof Error ? error.message : 'Unable to save snap in this thread.');
+                }
+            }
+        };
+
+        void postPhoto();
+
+        return () => {
+            mounted = false;
+        };
+    }, [photoInjected, photoUri, params.id, token]);
+
+    const handleSendMessage = async () => {
+        if (!token || !params.id || !message.trim()) {
+            return;
+        }
+
+        try {
+            setSending(true);
+            setErrorMessage('');
+
+            const response = await sendChatMessage(token, params.id as string, {
+                text: message.trim(),
+            });
+
+            setThread(response.thread);
+            setMessage('');
+        } catch (error) {
+            setErrorMessage(error instanceof Error ? error.message : 'Unable to send the message right now.');
+        } finally {
+            setSending(false);
+        }
+    };
 
     return (
         <View style={styles.screen}>
@@ -45,8 +117,8 @@ export default function ChatThreadScreen() {
                 </Pressable>
 
                 <View style={styles.headerTitleWrap}>
-                    <Text style={styles.headerTitle}>{conversation.name}</Text>
-                    <Text style={styles.headerSubtitle}>{conversation.subtitle}</Text>
+                    <Text style={styles.headerTitle}>{conversationName}</Text>
+                    <Text style={styles.headerSubtitle}>{conversationSubtitle}</Text>
                 </View>
 
                 <View style={styles.headerBadge}>
@@ -56,10 +128,10 @@ export default function ChatThreadScreen() {
 
             <ScrollView style={styles.thread} contentContainerStyle={styles.threadContent} showsVerticalScrollIndicator={false}>
                 <View style={styles.threadMeta}>
-                    <Text style={styles.threadMetaText}>Today • Safe channel</Text>
+                    <Text style={styles.threadMetaText}>{loading ? 'Loading conversation...' : 'Today • Safe channel'}</Text>
                 </View>
 
-                {photoUri ? (
+                {photoUri && !photoInjected ? (
                     <View style={[styles.messageBubble, styles.messageBubbleMine, styles.photoBubble]}>
                         <Image source={{ uri: photoUri }} style={styles.photoPreview} contentFit="cover" />
                         <Text style={[styles.messageText, styles.messageTextMine]}>Snap sent from Her Shield.</Text>
@@ -67,20 +139,17 @@ export default function ChatThreadScreen() {
                     </View>
                 ) : null}
 
-                {threadMessages.map((message) => (
+                {messages.map((messageItem) => (
                     <View
-                        key={message.id}
+                        key={messageItem.id}
                         style={[
                             styles.messageBubble,
-                            message.sender === 'me' ? styles.messageBubbleMine : styles.messageBubbleTheirs,
+                            messageItem.sender === 'me' ? styles.messageBubbleMine : styles.messageBubbleTheirs,
                         ]}
                     >
-                        <Text style={[styles.messageText, message.sender === 'me' && styles.messageTextMine]}>
-                            {message.text}
-                        </Text>
-                        <Text style={[styles.messageTime, message.sender === 'me' && styles.messageTimeMine]}>
-                            {message.time}
-                        </Text>
+                        {messageItem.imageUrl ? <Image source={{ uri: messageItem.imageUrl }} style={styles.photoPreview} contentFit="cover" /> : null}
+                        {messageItem.text ? <Text style={[styles.messageText, messageItem.sender === 'me' && styles.messageTextMine]}>{messageItem.text}</Text> : null}
+                        <Text style={[styles.messageTime, messageItem.sender === 'me' && styles.messageTimeMine]}>{messageItem.time}</Text>
                     </View>
                 ))}
             </ScrollView>
@@ -88,10 +157,16 @@ export default function ChatThreadScreen() {
             <View style={styles.composer}>
                 <View style={styles.composerField}>
                     <MaterialCommunityIcons name="message-text-outline" size={18} color="#A46A74" />
-                    <TextInput placeholder="Type a message" placeholderTextColor="#A46A74" style={styles.input} />
+                    <TextInput
+                        value={message}
+                        onChangeText={setMessage}
+                        placeholder="Type a message"
+                        placeholderTextColor="#A46A74"
+                        style={styles.input}
+                    />
                 </View>
 
-                <Pressable style={styles.mediaButton} accessibilityRole="button" accessibilityLabel="Attach photo">
+                <Pressable style={styles.mediaButton} accessibilityRole="button" accessibilityLabel="Attach photo" onPress={() => router.push('/snap')}>
                     <MaterialCommunityIcons name="image-outline" size={18} color="#C84D61" />
                 </Pressable>
 
@@ -99,10 +174,17 @@ export default function ChatThreadScreen() {
                     <MaterialCommunityIcons name="microphone-outline" size={18} color="#C84D61" />
                 </Pressable>
 
-                <Pressable style={styles.sendButton} accessibilityRole="button">
+                <Pressable style={[styles.sendButton, sending && styles.sendButtonDisabled]} accessibilityRole="button" onPress={() => void handleSendMessage()} disabled={sending}>
                     <MaterialCommunityIcons name="send" size={18} color="#FFFFFF" />
                 </Pressable>
             </View>
+
+            {errorMessage ? (
+                <View style={styles.errorBar}>
+                    <MaterialCommunityIcons name="alert-circle-outline" size={18} color="#B84A5A" />
+                    <Text style={styles.errorText}>{errorMessage}</Text>
+                </View>
+            ) : null}
         </View>
     );
 }
@@ -243,6 +325,9 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
+    sendButtonDisabled: {
+        opacity: 0.7,
+    },
     mediaButton: {
         width: 42,
         height: 42,
@@ -252,5 +337,21 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         borderWidth: 1,
         borderColor: 'rgba(184,90,107,0.18)',
+    },
+    errorBar: {
+        marginTop: 10,
+        borderRadius: 16,
+        backgroundColor: 'rgba(255,255,255,0.95)',
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    errorText: {
+        flex: 1,
+        color: '#B84A5A',
+        fontSize: 13,
+        fontWeight: '700',
     },
 });

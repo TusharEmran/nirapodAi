@@ -129,7 +129,7 @@ export default function EmergencyScreen() {
                     <View style={styles.checkCircle}>
                         <MaterialCommunityIcons name="check" size={15} color="#C84D61" />
                     </View>
-                    <Text style={styles.infoText}>You're sharing your live location</Text>
+                    <Text style={styles.infoText}>You are sharing your live location</Text>
                 </Animated.View>
 
                 <Animated.View style={[styles.infoRow, infoRowStyle(infoRowAnimations[2])]}>

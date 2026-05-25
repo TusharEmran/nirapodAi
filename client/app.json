@@ -12,6 +12,7 @@
       "supportsTablet": true
     },
     "android": {
+      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -31,6 +32,11 @@
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
+    "updates": {
+      "enabled": false,
+      "checkAutomatically": "NEVER",
+      "fallbackToCacheTimeout": 0
+    },
     "plugins": [
       "expo-router",
       [
@@ -45,6 +51,7 @@
           "enableBackgroundPlayback": true
         }
       ],
+      "expo-secure-store",
       [
         "expo-splash-screen",
         {

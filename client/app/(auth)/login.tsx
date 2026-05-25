@@ -1,28 +1,54 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { loginUser } from '@/lib/auth-api';
+import { setPendingOtpSession } from '@/lib/auth-session';
+import { toPendingOtpSession } from '@/lib/auth-session-mapping';
 
 export default function LoginScreen() {
   const router = useRouter();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+
+  const handleLogin = async () => {
+    const trimmedIdentifier = identifier.trim();
+
+    if (!trimmedIdentifier || !password) {
+      setErrorMessage('Enter your email or phone number and password.');
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      setErrorMessage('');
+
+      const result = await loginUser({
+        identifier: trimmedIdentifier,
+        password,
+      });
+
+      setPendingOtpSession(toPendingOtpSession(result));
+
+      if (result.devOtp) {
+        Alert.alert('Dev OTP', `Your verification code is ${result.devOtp}`);
+      }
+
+      router.push('/(auth)/otp');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to sign in right now.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.heroCard}>
-          <View style={styles.badgeRow}>
-            <View style={styles.badgeIcon}>
-              <MaterialCommunityIcons name="shield-account" size={22} color="#C84D61" />
-            </View>
-            <Text style={styles.badgeText}>Secure access</Text>
-          </View>
-
           <Text style={styles.title}>Sign in to Her Shield</Text>
-          <Text style={styles.subtitle}>
-            Continue to your safety dashboard, watch alerts, and emergency tools.
-          </Text>
         </View>
 
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -37,7 +63,7 @@ export default function LoginScreen() {
                 placeholderTextColor="#B89BA3"
                 style={styles.input}
                 autoCapitalize="none"
-                keyboardType="email-address"
+                keyboardType="default"
               />
             </View>
 
@@ -55,11 +81,14 @@ export default function LoginScreen() {
             </View>
 
             <Pressable
-              style={styles.primaryButton}
-              onPress={() => router.push('/(auth)/otp')}
+              style={[styles.primaryButton, isSubmitting && styles.primaryButtonDisabled]}
+              onPress={handleLogin}
+              disabled={isSubmitting}
               accessibilityRole="button">
-              <Text style={styles.primaryButtonText}>Send OTP</Text>
+              <Text style={styles.primaryButtonText}>{isSubmitting ? 'Sending OTP...' : 'Send OTP'}</Text>
             </Pressable>
+
+            {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
             <Pressable
               style={styles.secondaryButton}
@@ -170,10 +199,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 8,
   },
+  primaryButtonDisabled: {
+    opacity: 0.7,
+  },
   primaryButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '900',
+  },
+  errorText: {
+    color: '#B84A5A',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
   },
   secondaryButton: {
     minHeight: 52,

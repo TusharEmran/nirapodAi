@@ -6,6 +6,7 @@ import { useEffect } from 'react';
 import { Platform } from 'react-native';
 import 'react-native-reanimated';
 
+import { AuthProvider } from '@/providers/auth-provider';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export const unstable_settings = {
@@ -33,55 +34,57 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <ThemeProvider value={navTheme}>
-      <Stack
-        screenOptions={{
-          contentStyle: { backgroundColor: '#C84D61' },
-          animation: 'fade',
-        }}
-      >
-        <Stack.Screen
-          name="(auth)"
-          options={{
-            headerShown: false,
-          }}
-        />
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="emergency"
-          options={{
-            headerShown: false,
-          }}
-        />
-        <Stack.Screen
-          name="chat/[id]"
-          options={{
-            headerShown: false,
-          }}
-        />
-        <Stack.Screen
-          name="snap"
-          options={{
-            headerShown: false,
-          }}
-        />
-        <Stack.Screen
-          name="profile/[section]"
-          options={{
-            headerShown: false,
-          }}
-        />
-        <Stack.Screen
-          name="modal"
-          options={{
-            presentation: 'transparentModal',
-            headerShown: false,
-            contentStyle: { backgroundColor: 'transparent' },
+    <AuthProvider>
+      <ThemeProvider value={navTheme}>
+        <Stack
+          screenOptions={{
+            contentStyle: { backgroundColor: '#C84D61' },
             animation: 'fade',
           }}
-        />
-      </Stack>
-      <StatusBar hidden style="light" />
-    </ThemeProvider>
+        >
+          <Stack.Screen
+            name="(auth)"
+            options={{
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="emergency"
+            options={{
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="chat/[id]"
+            options={{
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="snap"
+            options={{
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="profile/[section]"
+            options={{
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="modal"
+            options={{
+              presentation: 'transparentModal',
+              headerShown: false,
+              contentStyle: { backgroundColor: 'transparent' },
+              animation: 'fade',
+            }}
+          />
+        </Stack>
+        <StatusBar hidden style="light" />
+      </ThemeProvider>
+    </AuthProvider>
   );
 }

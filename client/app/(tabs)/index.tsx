@@ -1,38 +1,52 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, AppState, BackHandler, Easing, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Animated, AppState, BackHandler, Easing, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, Vibration, View } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import { Alert } from 'react-native';
+
+import { addContact, fetchContacts, type EmergencyContact } from '@/lib/auth-api';
+import { useAuth } from '@/providers/auth-provider';
 
 const quickActions = [
   { id: 'connectWatch', label: 'Connect\nwatch', icon: 'watch', accessibilityLabel: 'Connect smart watch for BP and heart rate monitoring' },
   { id: 'siren', label: 'Trigger\nsiren', icon: 'alarm-light', accessibilityLabel: 'Trigger loud siren for area scanning' },
   { id: 'snap', label: 'Snap', icon: 'camera', accessibilityLabel: 'Take a quick photo' },
-  { id: 'more', label: 'More', icon: 'dots-horizontal', accessibilityLabel: 'Open more quick actions' },
-] as const;
-
-const contacts = [
-  { name: 'Abigail Tetteh', phone: '+233501497265', initials: 'AT', avatar: '#7AB0C0' },
-  { name: 'Abena Kyekyeku', phone: '+233...', initials: 'AK', avatar: '#C9A56C' },
+  { id: 'addContact', label: 'Add\ncontact', icon: 'account-plus', accessibilityLabel: 'Add an emergency contact' },
 ] as const;
 
 const sirenPassword = '122';
 const sirenAudioSource = require('../../assets/images/soundreality-civil-defense-siren-128262.mp3');
+const fakeCallerName = 'Emergency line';
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { token, user } = useAuth();
   const [showEmergencyOverlay, setShowEmergencyOverlay] = useState(false);
   const [showSirenOverlay, setShowSirenOverlay] = useState(false);
+  const [showAddContactModal, setShowAddContactModal] = useState(false);
+  const [showIncomingCall, setShowIncomingCall] = useState(false);
+  const [isCallAnswered, setIsCallAnswered] = useState(false);
   const [sirenPasswordInput, setSirenPasswordInput] = useState('');
   const [sirenPasswordError, setSirenPasswordError] = useState('');
   const [sirenStartedAt, setSirenStartedAt] = useState<number | null>(null);
+  const [callStartedAt, setCallStartedAt] = useState<number | null>(null);
+  const [callElapsedSeconds, setCallElapsedSeconds] = useState(0);
   const [sirenElapsedSeconds, setSirenElapsedSeconds] = useState(0);
   const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [contacts, setContacts] = useState<EmergencyContact[]>([]);
+  const [contactName, setContactName] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
+  const [contactRelationship, setContactRelationship] = useState('');
+  const [contactError, setContactError] = useState('');
+  const [isSavingContact, setIsSavingContact] = useState(false);
+  const fakeCallerNumber = user?.emergencyLineNumber?.trim() || '+233 000 000 000';
   const pulseOne = useRef(new Animated.Value(0)).current;
   const pulseTwo = useRef(new Animated.Value(0)).current;
+  const callPulse = useRef(new Animated.Value(0)).current;
   const sirenPlayerRef = useRef<ReturnType<typeof createAudioPlayer> | null>(null);
 
   useEffect(() => {
@@ -74,6 +88,38 @@ export default function HomeScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    if (user?.emergencyContacts) {
+      setContacts(user.emergencyContacts);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!token) {
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadContacts = async () => {
+      try {
+        const response = await fetchContacts(token);
+
+        if (isMounted) {
+          setContacts(response.contacts);
+        }
+      } catch (error) {
+        console.error('Failed to load contacts', error);
+      }
+    };
+
+    void loadContacts();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [token]);
+
   const mapRef = useRef<MapView>(null);
 
   useEffect(() => {
@@ -105,6 +151,62 @@ export default function HomeScreen() {
 
     return () => subscription.remove();
   }, [showSirenOverlay]);
+
+  useEffect(() => {
+    if (!showIncomingCall || isCallAnswered) {
+      Vibration.cancel();
+      return;
+    }
+
+    Vibration.vibrate([0, 1200, 900], true);
+
+    return () => {
+      Vibration.cancel();
+    };
+  }, [isCallAnswered, showIncomingCall]);
+
+  useEffect(() => {
+    if (!showIncomingCall || !isCallAnswered || callStartedAt === null) {
+      setCallElapsedSeconds(0);
+      return;
+    }
+
+    setCallElapsedSeconds(Math.max(0, Math.floor((Date.now() - callStartedAt) / 1000)));
+
+    const interval = setInterval(() => {
+      setCallElapsedSeconds(Math.max(0, Math.floor((Date.now() - callStartedAt) / 1000)));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [callStartedAt, isCallAnswered, showIncomingCall]);
+
+  useEffect(() => {
+    if (!showIncomingCall || isCallAnswered) {
+      callPulse.stopAnimation();
+      callPulse.setValue(0);
+      return;
+    }
+
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(callPulse, {
+          toValue: 1,
+          duration: 1200,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(callPulse, {
+          toValue: 0,
+          duration: 0,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+
+    animation.start();
+
+    return () => animation.stop();
+  }, [callPulse, isCallAnswered, showIncomingCall]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState) => {
@@ -185,6 +287,76 @@ export default function HomeScreen() {
       setSirenStartedAt(null);
       setSirenElapsedSeconds(0);
       setShowSirenOverlay(false);
+    }
+  };
+
+  const openAddContact = () => {
+    setContactError('');
+    setShowAddContactModal(true);
+  };
+
+  const openContactChat = (contact: EmergencyContact) => {
+    if (!contact.isAppUser) {
+      Alert.alert('Not on the app', `${contact.name} is not a Her Shield user yet.`);
+      return;
+    }
+
+    router.push(`/chat/${contact.id}`);
+  };
+
+  const startFakeCall = () => {
+    setShowIncomingCall(true);
+    setIsCallAnswered(false);
+    setCallStartedAt(null);
+    setCallElapsedSeconds(0);
+  };
+
+  const answerFakeCall = () => {
+    setIsCallAnswered(true);
+    setCallStartedAt(Date.now());
+  };
+
+  const endFakeCall = () => {
+    Vibration.cancel();
+    setShowIncomingCall(false);
+    setIsCallAnswered(false);
+    setCallStartedAt(null);
+    setCallElapsedSeconds(0);
+  };
+
+  const handleAddContact = async () => {
+    if (!token) {
+      setContactError('Sign in again to add a contact.');
+      return;
+    }
+
+    const trimmedName = contactName.trim();
+    const trimmedPhone = contactPhone.trim();
+
+    if (!trimmedName || !trimmedPhone) {
+      setContactError('Enter a contact name and phone number.');
+      return;
+    }
+
+    try {
+      setIsSavingContact(true);
+      setContactError('');
+
+      const response = await addContact(token, {
+        name: trimmedName,
+        phone: trimmedPhone,
+        relationship: contactRelationship.trim(),
+      });
+
+      setContacts(response.contacts);
+      setContactName('');
+      setContactPhone('');
+      setContactRelationship('');
+      setShowAddContactModal(false);
+    } catch (error) {
+      setContactError(error instanceof Error ? error.message : 'Unable to add contact right now.');
+    } finally {
+      setIsSavingContact(false);
     }
   };
 
@@ -338,7 +510,7 @@ export default function HomeScreen() {
 
             <Pressable
               style={styles.fakeCallButton}
-              onPress={() => setShowEmergencyOverlay(true)}
+              onPress={startFakeCall}
               accessibilityRole="button"
               accessibilityLabel="Fake call">
               <MaterialCommunityIcons name="phone-plus-outline" size={15} color="#C84D61" />
@@ -366,6 +538,11 @@ export default function HomeScreen() {
 
                   if (action.id === 'siren') {
                     void startSiren();
+                    return;
+                  }
+
+                  if (action.id === 'addContact') {
+                    openAddContact();
                   }
                 }}
                 accessibilityRole="button"
@@ -382,7 +559,7 @@ export default function HomeScreen() {
 
           <View style={styles.contactsList}>
             {contacts.map((contact) => (
-              <View key={contact.name} style={styles.contactCard}>
+              <View key={contact.id} style={styles.contactCard}>
                 <View style={[styles.avatar, { backgroundColor: contact.avatar }]}>
                   <Text style={styles.avatarText}>{contact.initials}</Text>
                 </View>
@@ -390,13 +567,22 @@ export default function HomeScreen() {
                 <View style={styles.contactInfo}>
                   <Text style={styles.contactName}>{contact.name}</Text>
                   <Text style={styles.contactPhone}>{contact.phone}</Text>
+                  {contact.relationship ? <Text style={styles.contactRelationship}>{contact.relationship}</Text> : null}
                 </View>
 
                 <View style={styles.contactActions}>
-                  <Pressable style={styles.contactActionButton}>
-                    <MaterialCommunityIcons name="access-point" size={18} color="#C84D61" />
+                  <Pressable
+                    style={styles.contactActionButton}
+                    onPress={() => openContactChat(contact)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Message ${contact.name}`}>
+                    <MaterialCommunityIcons name="message-text-outline" size={18} color="#C84D61" />
                   </Pressable>
-                  <Pressable style={styles.contactActionButton}>
+                  <Pressable
+                    style={styles.contactActionButton}
+                    onPress={() => Alert.alert('Call contact', 'Use the fake call button to open the emergency call UI.')}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Call ${contact.name}`}>
                     <MaterialCommunityIcons name="phone" size={18} color="#C84D61" />
                   </Pressable>
                 </View>
@@ -405,6 +591,153 @@ export default function HomeScreen() {
           </View>
         </View>
       </ScrollView>
+
+      <Modal
+        visible={showIncomingCall}
+        transparent={true}
+        animationType="fade"
+        statusBarTranslucent={true}
+        onRequestClose={endFakeCall}>
+        <View style={styles.callOverlayContainer}>
+          <BlurView
+            intensity={35}
+            tint="dark"
+            experimentalBlurMethod="dimezisBlurView"
+            style={StyleSheet.absoluteFill}
+          />
+          <View style={styles.callOverlayScrim} />
+          <View style={styles.callOverlayGlowOne} />
+          <View style={styles.callOverlayGlowTwo} />
+
+          <View style={styles.callSheet}>
+            <View style={styles.callStatusPill}>
+              <View style={[styles.callStatusDot, !isCallAnswered && styles.callStatusDotRinging]} />
+              <Text style={styles.callStatusText}>{isCallAnswered ? 'CALL CONNECTED' : 'INCOMING CALL'}</Text>
+            </View>
+
+            <Animated.View
+              style={[
+                styles.callAvatarRing,
+                !isCallAnswered && {
+                  opacity: callPulse.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] }),
+                  transform: [
+                    {
+                      scale: callPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.05] }),
+                    },
+                  ],
+                },
+              ]}>
+              <View style={styles.callAvatarCore}>
+                <Text style={styles.callAvatarText}>{fakeCallerName.split(' ').map((part) => part[0] || '').join('').toUpperCase()}</Text>
+              </View>
+            </Animated.View>
+
+            <Text style={styles.callName}>{fakeCallerName}</Text>
+            <Text style={styles.callNumber}>{fakeCallerNumber}</Text>
+            <Text style={styles.callLabel}>{isCallAnswered ? `Connected for ${String(Math.floor(callElapsedSeconds / 60)).padStart(2, '0')}:${String(callElapsedSeconds % 60).padStart(2, '0')}` : 'Incoming call from Her Shield emergency line'}</Text>
+
+            <View style={styles.callActionsRow}>
+              <Pressable
+                style={styles.callActionButtonReject}
+                onPress={endFakeCall}
+                accessibilityRole="button"
+                accessibilityLabel="Reject call">
+                <MaterialCommunityIcons name="phone-hangup" size={28} color="#FFFFFF" />
+                <Text style={styles.callActionText}>Decline</Text>
+              </Pressable>
+
+              {isCallAnswered ? (
+                <Pressable
+                  style={styles.callActionButtonReject}
+                  onPress={endFakeCall}
+                  accessibilityRole="button"
+                  accessibilityLabel="End call">
+                  <MaterialCommunityIcons name="phone-off" size={28} color="#FFFFFF" />
+                  <Text style={styles.callActionText}>End</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  style={styles.callActionButtonAnswer}
+                  onPress={answerFakeCall}
+                  accessibilityRole="button"
+                  accessibilityLabel="Answer call">
+                  <MaterialCommunityIcons name="phone" size={30} color="#FFFFFF" />
+                  <Text style={styles.callActionText}>Answer</Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showAddContactModal}
+        transparent={true}
+        animationType="fade"
+        statusBarTranslucent={true}
+        onRequestClose={() => setShowAddContactModal(false)}>
+        <View style={styles.addContactOverlay}>
+          <BlurView
+            intensity={25}
+            tint="dark"
+            experimentalBlurMethod="dimezisBlurView"
+            style={StyleSheet.absoluteFill}
+          />
+          <View style={styles.addContactScrim} />
+
+          <View style={styles.addContactCard}>
+            <View style={styles.addContactHeader}>
+              <View style={styles.addContactIconWrap}>
+                <MaterialCommunityIcons name="account-plus" size={22} color="#FFFFFF" />
+              </View>
+              <View style={styles.addContactHeaderText}>
+                <Text style={styles.addContactTitle}>Add contact</Text>
+                <Text style={styles.addContactSubtitle}>Save a trusted emergency contact to your account.</Text>
+              </View>
+            </View>
+
+            <View style={styles.addContactForm}>
+              <TextInput
+                value={contactName}
+                onChangeText={setContactName}
+                placeholder="Contact name"
+                placeholderTextColor="#A46A74"
+                style={styles.addContactInput}
+              />
+              <TextInput
+                value={contactPhone}
+                onChangeText={setContactPhone}
+                placeholder="Phone number"
+                placeholderTextColor="#A46A74"
+                style={styles.addContactInput}
+                keyboardType="phone-pad"
+              />
+              <TextInput
+                value={contactRelationship}
+                onChangeText={setContactRelationship}
+                placeholder="Relationship"
+                placeholderTextColor="#A46A74"
+                style={styles.addContactInput}
+              />
+            </View>
+
+            {contactError ? <Text style={styles.addContactError}>{contactError}</Text> : null}
+
+            <View style={styles.addContactFooter}>
+              <Pressable style={styles.addContactSecondaryButton} onPress={() => setShowAddContactModal(false)} accessibilityRole="button">
+                <Text style={styles.addContactSecondaryText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.addContactPrimaryButton, isSavingContact && { opacity: 0.7 }]}
+                onPress={() => void handleAddContact()}
+                accessibilityRole="button"
+                disabled={isSavingContact}>
+                <Text style={styles.addContactPrimaryText}>{isSavingContact ? 'Saving...' : 'Save contact'}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={showSirenOverlay}
@@ -923,6 +1256,156 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: -0.2,
   },
+  callOverlayContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  callOverlayScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(7, 10, 17, 0.55)',
+  },
+  callOverlayGlowOne: {
+    position: 'absolute',
+    top: -60,
+    right: -80,
+    width: 220,
+    height: 220,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  callOverlayGlowTwo: {
+    position: 'absolute',
+    bottom: -80,
+    left: -70,
+    width: 260,
+    height: 260,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  callSheet: {
+    width: '100%',
+    maxWidth: 360,
+    alignItems: 'center',
+    gap: 14,
+  },
+  callStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
+  callStatusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: '#76D38C',
+  },
+  callStatusDotRinging: {
+    backgroundColor: '#F7D86C',
+  },
+  callStatusText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 1.1,
+  },
+  callAvatarRing: {
+    width: 176,
+    height: 176,
+    borderRadius: 88,
+    borderWidth: 10,
+    borderColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  callAvatarCore: {
+    width: 130,
+    height: 130,
+    borderRadius: 65,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#C84D61',
+    shadowColor: '#000000',
+    shadowOpacity: 0.25,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 10,
+  },
+  callAvatarText: {
+    color: '#FFFFFF',
+    fontSize: 34,
+    fontWeight: '900',
+    letterSpacing: -1,
+  },
+  callName: {
+    color: '#FFFFFF',
+    fontSize: 30,
+    fontWeight: '900',
+    letterSpacing: -0.6,
+    textAlign: 'center',
+  },
+  callNumber: {
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  callLabel: {
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  callActionsRow: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 14,
+    marginTop: 10,
+  },
+  callActionButtonReject: {
+    flex: 1,
+    minHeight: 72,
+    borderRadius: 22,
+    backgroundColor: '#D94A5E',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    shadowColor: '#000000',
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 8,
+  },
+  callActionButtonAnswer: {
+    flex: 1,
+    minHeight: 72,
+    borderRadius: 22,
+    backgroundColor: '#38B46B',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    shadowColor: '#000000',
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 8,
+  },
+  callActionText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
   pill: {
     minHeight: 36,
     paddingHorizontal: 18,
@@ -1039,6 +1522,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
+  contactRelationship: {
+    color: '#B84A5A',
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 2,
+  },
   contactActions: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1051,5 +1540,106 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  addContactOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  addContactScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(34, 12, 17, 0.34)',
+  },
+  addContactCard: {
+    width: '100%',
+    maxWidth: 360,
+    borderRadius: 28,
+    backgroundColor: 'rgba(255,255,255,0.98)',
+    padding: 18,
+    gap: 14,
+    shadowColor: '#7A2434',
+    shadowOpacity: 0.24,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 14 },
+    elevation: 12,
+  },
+  addContactHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  addContactIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#C84D61',
+  },
+  addContactHeaderText: {
+    flex: 1,
+    gap: 2,
+  },
+  addContactTitle: {
+    color: '#1D1D1F',
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  addContactSubtitle: {
+    color: '#7A6168',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  addContactForm: {
+    gap: 10,
+  },
+  addContactInput: {
+    minHeight: 50,
+    borderRadius: 16,
+    backgroundColor: '#FFF8F9',
+    borderWidth: 1,
+    borderColor: 'rgba(200,77,97,0.14)',
+    paddingHorizontal: 14,
+    color: '#1D1D1F',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  addContactError: {
+    color: '#B84A5A',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+  },
+  addContactFooter: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  addContactSecondaryButton: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F7EDEF',
+  },
+  addContactSecondaryText: {
+    color: '#B84A5A',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  addContactPrimaryButton: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#C84D61',
+  },
+  addContactPrimaryText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
   },
 });

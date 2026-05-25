@@ -1,6 +1,9 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+
+import { useAuth } from '@/providers/auth-provider';
 
 const profileStats = [
     { id: '1', label: 'Trusted contacts', value: '5' },
@@ -9,26 +12,35 @@ const profileStats = [
 ] as const;
 
 const profileActions = [
-    { id: '1', label: 'Edit profile', icon: 'account-edit-outline', route: 'edit-profile' },
-    { id: '2', label: 'Emergency contacts', icon: 'account-multiple-outline', route: 'emergency-contacts' },
-    { id: '3', label: 'Safety settings', icon: 'shield-cog', route: 'safety-settings' },
-    { id: '4', label: 'Privacy controls', icon: 'lock-outline', route: 'privacy-controls' },
+    { id: '1', label: 'Emergency contacts', icon: 'account-multiple-outline', route: 'emergency-contacts' },
+    { id: '2', label: 'Safety settings', icon: 'shield-cog-outline', route: 'safety-settings' },
+    { id: '3', label: 'Privacy controls', icon: 'lock-outline', route: 'privacy-controls' },
 ] as const;
 
 export default function ProfileScreen() {
     const router = useRouter();
+    const { signOut, user } = useAuth();
+
+    const handleSignOut = async () => {
+        await signOut();
+        router.replace('/(auth)/login');
+    };
 
     return (
         <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
             <View style={styles.headerCard}>
                 <View style={styles.avatarRing}>
-                    <View style={styles.avatarInner}>
-                        <Text style={styles.avatarText}>HS</Text>
-                    </View>
+                    {user?.profileImageUrl ? (
+                        <Image source={{ uri: user.profileImageUrl }} style={styles.avatarImage} contentFit="cover" />
+                    ) : (
+                        <View style={styles.avatarInner}>
+                            <Text style={styles.avatarText}>HS</Text>
+                        </View>
+                    )}
                 </View>
 
-                <Text style={styles.name}>Her Shield User</Text>
-                <Text style={styles.subtitle}>Protected account • Ghana</Text>
+                <Text style={styles.name}>{user?.fullName || 'Her Shield User'}</Text>
+                <Text style={styles.subtitle}>{user?.city ? `${user.city} • Protected account` : 'Protected account • Ghana'}</Text>
 
                 <View style={styles.statRow}>
                     {profileStats.map((stat) => (
@@ -45,6 +57,18 @@ export default function ProfileScreen() {
                     <Text style={styles.sectionTitle}>Account</Text>
                     <MaterialCommunityIcons name="account-circle-outline" size={20} color="#C84D61" />
                 </View>
+
+                <Pressable
+                    onPress={() => router.push('/profile/edit-profile')}
+                    style={({ pressed }: { pressed: boolean }) => [styles.actionRow, pressed && styles.actionRowPressed]}
+                    accessibilityRole="button"
+                >
+                    <View style={styles.actionIconWrap}>
+                        <MaterialCommunityIcons name="account-edit-outline" size={20} color="#C84D61" />
+                    </View>
+                    <Text style={styles.actionLabel}>Edit profile</Text>
+                    <MaterialCommunityIcons name="chevron-right" size={20} color="#C5A6AE" />
+                </Pressable>
 
                 {profileActions.map((action, index) => (
                     <Pressable
@@ -74,16 +98,16 @@ export default function ProfileScreen() {
 
                 <View style={styles.infoBlock}>
                     <Text style={styles.infoLabel}>Primary contact</Text>
-                    <Text style={styles.infoValue}>Mom • +233 501 497 265</Text>
+                    <Text style={styles.infoValue}>{user?.primaryContact || 'Mom • +233 501 497 265'}</Text>
                 </View>
 
                 <View style={styles.infoBlock}>
                     <Text style={styles.infoLabel}>Medical note</Text>
-                    <Text style={styles.infoValue}>No known allergies • Emergency asthmatic inhaler carried</Text>
+                    <Text style={styles.infoValue}>{user?.medicalNote || 'No known allergies • Emergency asthmatic inhaler carried'}</Text>
                 </View>
             </View>
 
-            <Pressable style={styles.logoutButton} accessibilityRole="button">
+            <Pressable style={styles.logoutButton} onPress={handleSignOut} accessibilityRole="button">
                 <MaterialCommunityIcons name="logout-variant" size={18} color="#C84D61" />
                 <Text style={styles.logoutText}>Sign out</Text>
             </Pressable>
@@ -132,6 +156,11 @@ const styles = StyleSheet.create({
         backgroundColor: '#C84D61',
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    avatarImage: {
+        width: '100%',
+        height: '100%',
+        borderRadius: 46,
     },
     avatarText: {
         color: '#FFFFFF',

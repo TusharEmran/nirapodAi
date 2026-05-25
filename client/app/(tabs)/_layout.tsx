@@ -1,12 +1,24 @@
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Redirect } from 'expo-router';
 import { Tabs } from 'expo-router';
 import React from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useAuth } from '@/providers/auth-provider';
+
 export default function TabLayout() {
+  const { isReady, token } = useAuth();
   const isAndroid = Platform.OS === 'android';
+
+  if (!isReady) {
+    return null;
+  }
+
+  if (!token) {
+    return <Redirect href="/(auth)/login" />;
+  }
 
   return (
     <SafeAreaView style={styles.safeArea} edges={isAndroid ? ['bottom'] : []}>

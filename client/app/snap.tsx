@@ -3,25 +3,55 @@ import { CameraType, CameraView, useCameraPermissions } from 'expo-camera';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-const recipients = [
-    { id: '1', name: 'Mom', subtitle: 'Trusted contact', avatar: '#7AB0C0' },
-    { id: '2', name: 'Emergency Contact', subtitle: 'Live location on', avatar: '#C84D61' },
-    { id: '3', name: 'Police Hotline', subtitle: 'Assigned officer', avatar: '#6E7BA8' },
-    { id: '4', name: 'Best Friend', subtitle: 'On the way', avatar: '#C9A56C' },
-] as const;
+import { useAuth } from '@/providers/auth-provider';
+import { fetchContacts, type EmergencyContact, uploadMedia } from '@/lib/auth-api';
 
 export default function SnapScreen() {
     const router = useRouter();
+    const { token } = useAuth();
     const cameraRef = useRef<CameraView | null>(null);
     const [permission, requestPermission] = useCameraPermissions();
     const [cameraReady, setCameraReady] = useState(false);
     const [isCapturing, setIsCapturing] = useState(false);
+    const [isSending, setIsSending] = useState(false);
     const [photoUri, setPhotoUri] = useState<string | null>(null);
     const [lastSentRecipient, setLastSentRecipient] = useState<string | null>(null);
+    const [sendError, setSendError] = useState('');
+    const [contacts, setContacts] = useState<EmergencyContact[]>([]);
     const facing: CameraType = 'back';
+
+    const appRecipients = useMemo(() => contacts.filter((contact) => contact.isAppUser), [contacts]);
+
+    useEffect(() => {
+        if (!token) {
+            setContacts([]);
+            return;
+        }
+
+        let mounted = true;
+
+        const loadContacts = async () => {
+            try {
+                const response = await fetchContacts(token);
+                if (mounted) {
+                    setContacts(response.contacts);
+                }
+            } catch {
+                if (mounted) {
+                    setContacts([]);
+                }
+            }
+        };
+
+        void loadContacts();
+
+        return () => {
+            mounted = false;
+        };
+    }, [token]);
 
     const takeSnap = async () => {
         if (!cameraRef.current || isCapturing || !cameraReady) {
@@ -43,22 +73,38 @@ export default function SnapScreen() {
     const retakeSnap = () => {
         setPhotoUri(null);
         setLastSentRecipient(null);
+        setSendError('');
     };
 
-    const sendSnap = async (recipientId: string) => {
+    const sendSnap = async (recipient: EmergencyContact) => {
         if (!photoUri) {
             return;
         }
 
-        const recipient = recipients.find((entry) => entry.id === recipientId);
-
-        if (!recipient) {
+        if (!token) {
+            setSendError('Sign in again to send snaps.');
             return;
         }
 
-        setLastSentRecipient(recipient.name);
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        router.push(`/chat/${recipient.id}?photoUri=${encodeURIComponent(photoUri)}`);
+        if (!recipient.isAppUser) {
+            Alert.alert('Not on the app', `${recipient.name} is not a Her Shield user yet.`);
+            return;
+        }
+
+        try {
+            setIsSending(true);
+            setSendError('');
+
+            const uploaded = await uploadMedia(token, photoUri, 'nirapodai/snaps');
+
+            setLastSentRecipient(recipient.name);
+            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            router.push(`/chat/${recipient.id}?photoUri=${encodeURIComponent(uploaded.url)}`);
+        } catch (error) {
+            setSendError(error instanceof Error ? error.message : 'Unable to send this snap right now.');
+        } finally {
+            setIsSending(false);
+        }
     };
 
     if (!permission) {
@@ -73,9 +119,7 @@ export default function SnapScreen() {
                         <MaterialCommunityIcons name="camera" size={24} color="#C84D61" />
                     </View>
                     <Text style={styles.title}>Camera access needed</Text>
-                    <Text style={styles.subtitle}>
-                        Grant camera permission to take a snap and send it directly to your contacts.
-                    </Text>
+                    <Text style={styles.subtitle}>Grant camera permission to take a snap and send it directly to your contacts.</Text>
                     <Pressable style={styles.primaryButton} onPress={() => void requestPermission()} accessibilityRole="button">
                         <Text style={styles.primaryButtonText}>Allow camera</Text>
                     </Pressable>
@@ -102,7 +146,6 @@ export default function SnapScreen() {
             </View>
 
             <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-
                 <View style={styles.cameraFrame}>
                     {photoUri ? (
                         <Image source={{ uri: photoUri }} style={styles.preview} contentFit="cover" />
@@ -172,28 +215,37 @@ export default function SnapScreen() {
                             </View>
                         ) : null}
 
-                        {recipients.map((recipient) => (
+                        {contacts.map((recipient) => (
                             <Pressable
                                 key={recipient.id}
                                 style={styles.recipientCard}
-                                onPress={() => void sendSnap(recipient.id)}
+                                onPress={() => void sendSnap(recipient)}
                                 accessibilityRole="button"
                             >
                                 <View style={[styles.recipientAvatar, { backgroundColor: recipient.avatar }]}>
-                                    <Text style={styles.recipientInitial}>{recipient.name.slice(0, 1)}</Text>
+                                    <Text style={styles.recipientInitial}>{recipient.initials}</Text>
                                 </View>
 
                                 <View style={styles.recipientInfo}>
                                     <Text style={styles.recipientName}>{recipient.name}</Text>
-                                    <Text style={styles.recipientSubtitle}>{recipient.subtitle}</Text>
+                                    <Text style={styles.recipientSubtitle}>{recipient.relationship || recipient.phone}</Text>
                                 </View>
 
-                                <View style={styles.recipientAction}>
-                                    <MaterialCommunityIcons name="send" size={16} color="#C84D61" />
-                                    <Text style={styles.recipientActionText}>Send</Text>
+                                <View style={[styles.recipientAction, !recipient.isAppUser && styles.recipientActionDisabled]}>
+                                    <MaterialCommunityIcons name={recipient.isAppUser ? 'send' : 'account-cancel-outline'} size={16} color="#C84D61" />
+                                    <Text style={styles.recipientActionText}>{recipient.isAppUser ? 'Send' : 'Not on app'}</Text>
                                 </View>
                             </Pressable>
                         ))}
+
+                        {contacts.length > 0 && appRecipients.length === 0 ? (
+                            <View style={styles.emptyRecipients}>
+                                <MaterialCommunityIcons name="account-cancel-outline" size={18} color="#A46A74" />
+                                <Text style={styles.emptyRecipientsText}>None of your saved contacts are on Her Shield yet.</Text>
+                            </View>
+                        ) : null}
+
+                        {sendError ? <Text style={styles.sendError}>{sendError}</Text> : null}
                     </View>
                 ) : (
                     <View style={styles.tipCard}>
@@ -304,24 +356,6 @@ const styles = StyleSheet.create({
         paddingBottom: 28,
         gap: 16,
     },
-    heroCard: {
-        borderRadius: 28,
-        backgroundColor: 'rgba(255,255,255,0.12)',
-        padding: 18,
-        gap: 8,
-    },
-    heroTitle: {
-        color: '#FFFFFF',
-        fontSize: 22,
-        fontWeight: '900',
-        letterSpacing: -0.4,
-    },
-    heroText: {
-        color: 'rgba(255,255,255,0.88)',
-        fontSize: 14,
-        lineHeight: 20,
-        fontWeight: '600',
-    },
     cameraFrame: {
         borderRadius: 32,
         overflow: 'hidden',
@@ -389,7 +423,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         gap: 6,
         borderRadius: 999,
-        backgroundColor: 'rgba(29,29,31,0.56)',
+        backgroundColor: 'rgba(0,0,0,0.42)',
         paddingHorizontal: 10,
         paddingVertical: 6,
     },
@@ -397,8 +431,6 @@ const styles = StyleSheet.create({
         color: '#FFFFFF',
         fontSize: 11,
         fontWeight: '800',
-        letterSpacing: 0.7,
-        textTransform: 'uppercase',
     },
     controlsRow: {
         flexDirection: 'row',
@@ -407,12 +439,10 @@ const styles = StyleSheet.create({
         gap: 12,
     },
     captureButton: {
-        width: 76,
-        height: 76,
-        borderRadius: 38,
-        backgroundColor: '#1D1D1F',
-        borderWidth: 6,
-        borderColor: '#FFFFFF',
+        width: 68,
+        height: 68,
+        borderRadius: 34,
+        backgroundColor: '#C84D61',
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -420,49 +450,47 @@ const styles = StyleSheet.create({
         opacity: 0.7,
     },
     secondaryButton: {
-        minHeight: 56,
-        borderRadius: 18,
-        backgroundColor: '#FFFDFD',
+        minHeight: 48,
+        borderRadius: 16,
         paddingHorizontal: 16,
+        backgroundColor: '#FFFDFD',
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'center',
         gap: 8,
     },
     secondaryButtonText: {
         color: '#C84D61',
-        fontSize: 14,
+        fontSize: 13,
         fontWeight: '800',
     },
     sendPanel: {
         borderRadius: 28,
         backgroundColor: '#FFFDFD',
-        padding: 16,
-        gap: 12,
+        padding: 18,
+        gap: 14,
     },
     sendPanelHeader: {
         gap: 4,
     },
     sectionTitle: {
         color: '#1D1D1F',
-        fontSize: 20,
+        fontSize: 18,
         fontWeight: '900',
-        letterSpacing: -0.3,
     },
     sendPanelSubtitle: {
         color: '#7A6168',
         fontSize: 13,
-        fontWeight: '600',
         lineHeight: 18,
+        fontWeight: '600',
     },
     sentBanner: {
-        borderRadius: 16,
-        backgroundColor: '#77A97A',
-        paddingHorizontal: 12,
-        paddingVertical: 10,
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
+        borderRadius: 18,
+        backgroundColor: '#C84D61',
+        paddingHorizontal: 14,
+        paddingVertical: 10,
     },
     sentBannerText: {
         color: '#FFFFFF',
@@ -474,7 +502,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         gap: 12,
         borderRadius: 20,
-        backgroundColor: '#F7ECEE',
+        backgroundColor: '#FFF7F8',
         padding: 12,
     },
     recipientAvatar: {
@@ -512,10 +540,36 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         gap: 6,
     },
+    recipientActionDisabled: {
+        opacity: 0.65,
+    },
     recipientActionText: {
         color: '#C84D61',
         fontSize: 13,
         fontWeight: '800',
+    },
+    emptyRecipients: {
+        marginTop: 8,
+        paddingVertical: 14,
+        paddingHorizontal: 12,
+        borderRadius: 16,
+        backgroundColor: 'rgba(168,106,116,0.08)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+    },
+    emptyRecipientsText: {
+        color: '#7A6168',
+        fontSize: 12,
+        lineHeight: 18,
+        textAlign: 'center',
+        fontWeight: '700',
+    },
+    sendError: {
+        color: '#B84A5A',
+        fontSize: 12,
+        lineHeight: 16,
+        fontWeight: '700',
     },
     tipCard: {
         borderRadius: 24,

@@ -1,42 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-const conversations = [
-    {
-        id: '1',
-        name: 'Mom',
-        message: 'Are you safe? Call me back right away.',
-        time: '2m',
-        unread: true,
-        accent: '#F1A7AF',
-    },
-    {
-        id: '2',
-        name: 'Emergency Contact',
-        message: 'Live location shared. I am nearby.',
-        time: '8m',
-        unread: true,
-        accent: '#FFFFFF',
-    },
-    {
-        id: '3',
-        name: 'Police Hotline',
-        message: 'Officer assigned. Stay on the line.',
-        time: '12m',
-        unread: false,
-        accent: '#FFD3D7',
-    },
-    {
-        id: '4',
-        name: 'Best Friend',
-        message: 'I’m heading to your location now.',
-        time: '22m',
-        unread: false,
-        accent: '#FFE9EA',
-    },
-] as const;
+import { fetchContacts, type EmergencyContact } from '@/lib/auth-api';
+import { useAuth } from '@/providers/auth-provider';
 
 const quickActions = [
     { id: '1', label: 'Share location', icon: 'map-marker-radius-outline' },
@@ -46,18 +14,74 @@ const quickActions = [
 
 export default function CommunityScreen() {
     const router = useRouter();
+    const { token } = useAuth();
     const [locationShared, setLocationShared] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [contacts, setContacts] = useState<EmergencyContact[]>([]);
+    const [searchQuery, setSearchQuery] = useState('');
 
-    const visibleConversations = conversations.map((conversation) =>
-        locationShared
-            ? {
-                ...conversation,
-                message: 'Live location sent to all contacts.',
-                unread: false,
-                accent: '#FFD3D7',
+    useEffect(() => {
+        if (!token) {
+            setLoading(false);
+            return;
+        }
+
+        let mounted = true;
+
+        const loadContacts = async () => {
+            try {
+                const response = await fetchContacts(token);
+                if (mounted) {
+                    setContacts(response.contacts);
+                }
+            } catch {
+                if (mounted) {
+                    setContacts([]);
+                }
+            } finally {
+                if (mounted) {
+                    setLoading(false);
+                }
             }
-            : conversation,
+        };
+
+        void loadContacts();
+
+        return () => {
+            mounted = false;
+        };
+    }, [token]);
+
+    const visibleContacts = useMemo(() => {
+        const query = searchQuery.trim().toLowerCase();
+        const baseContacts = contacts.length > 0 ? contacts : [];
+
+        if (!query) {
+            return baseContacts;
+        }
+
+        return baseContacts.filter((contact) => {
+            const haystack = [contact.name, contact.phone, contact.relationship, contact.isAppUser ? 'app user' : 'not on app']
+                .join(' ')
+                .toLowerCase();
+
+            return haystack.includes(query);
+        });
+    }, [searchQuery, contacts]);
+
+    const unreadCount = useMemo(
+        () => contacts.filter((contact) => contact.isAppUser).length,
+        [contacts],
     );
+
+    const handleContactMessage = (contact: EmergencyContact) => {
+        if (!contact.isAppUser) {
+            Alert.alert('Not on the app', `${contact.name} is not a Her Shield user yet.`);
+            return;
+        }
+
+        router.push(`/chat/${contact.id}`);
+    };
 
     const handleShareLocation = () => {
         setLocationShared(true);
@@ -78,6 +102,8 @@ export default function CommunityScreen() {
             <View style={styles.searchBar}>
                 <MaterialCommunityIcons name="magnify" size={20} color="#A46A74" />
                 <TextInput
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
                     placeholder="Search conversations"
                     placeholderTextColor="#A46A74"
                     style={styles.searchInput}
@@ -112,36 +138,53 @@ export default function CommunityScreen() {
 
             <View style={styles.sectionCard}>
                 <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>Recent chats</Text>
-                    <Text style={styles.sectionMeta}>{locationShared ? 'Location shared' : '4 conversations'}</Text>
+                    <Text style={styles.sectionTitle}>All contacts</Text>
+                    <View style={styles.sectionMetaWrap}>
+                        {unreadCount > 0 ? (
+                            <View style={styles.unreadBadge}>
+                                <Text style={styles.unreadBadgeText}>{unreadCount}</Text>
+                            </View>
+                        ) : null}
+                    <Text style={styles.sectionMeta}>{loading ? 'Loading...' : `${visibleContacts.length} contacts`}</Text>
+                    </View>
                 </View>
 
-                {visibleConversations.map((conversation) => (
+                {visibleContacts.map((contact) => (
                     <Pressable
-                        key={conversation.id}
-                        onPress={() => router.push(`/chat/${conversation.id}`)}
+                        key={contact.id}
+                        onPress={() => handleContactMessage(contact)}
                         style={({ pressed }: { pressed: boolean }) => [
                             styles.chatRow,
                             pressed && styles.chatRowPressed,
                         ]}
                     >
-                        <View style={[styles.avatar, { backgroundColor: conversation.accent }]}>
-                            <Text style={styles.avatarText}>{conversation.name.slice(0, 1)}</Text>
+                        <View style={[styles.avatar, { backgroundColor: contact.avatar }]}>
+                            <Text style={styles.avatarText}>{contact.initials}</Text>
                         </View>
 
                         <View style={styles.chatBody}>
                             <View style={styles.chatTopLine}>
-                                <Text style={styles.chatName}>{conversation.name}</Text>
-                                <Text style={styles.chatTime}>{conversation.time}</Text>
+                                <Text style={styles.chatName}>{contact.name}</Text>
+                                <Text style={styles.chatTime}>{contact.isAppUser ? 'App user' : 'Not on app'}</Text>
                             </View>
                             <Text style={styles.chatPreview} numberOfLines={1}>
-                                {conversation.message}
+                                {contact.relationship || contact.phone}
                             </Text>
                         </View>
 
-                        {conversation.unread ? <View style={styles.unreadDot} /> : <View style={styles.readSpace} />}
+                        <View style={[styles.contactStatePill, contact.isAppUser ? styles.contactStatePillActive : styles.contactStatePillMuted]}>
+                            <Text style={styles.contactStatePillText}>{contact.isAppUser ? 'Message' : 'Unavailable'}</Text>
+                        </View>
                     </Pressable>
                 ))}
+
+                {!loading && visibleContacts.length === 0 ? (
+                    <View style={styles.emptyState}>
+                        <MaterialCommunityIcons name="account-group-outline" size={22} color="#A46A74" />
+                        <Text style={styles.emptyTitle}>{searchQuery.trim() ? 'No contacts found' : 'No saved contacts yet'}</Text>
+                        <Text style={styles.emptyText}>{searchQuery.trim() ? 'Try a different name, phone, or relationship.' : 'Add contacts first so they appear here.'}</Text>
+                    </View>
+                ) : null}
             </View>
         </ScrollView>
     );
@@ -256,6 +299,11 @@ const styles = StyleSheet.create({
         fontSize: 12,
         fontWeight: '700',
     },
+    sectionMetaWrap: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
     locationBanner: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -320,14 +368,56 @@ const styles = StyleSheet.create({
         lineHeight: 20,
         fontWeight: '600',
     },
-    unreadDot: {
-        width: 11,
-        height: 11,
+    contactStatePill: {
+        paddingHorizontal: 10,
+        paddingVertical: 6,
         borderRadius: 999,
+    },
+    contactStatePillActive: {
         backgroundColor: '#C84D61',
     },
-    readSpace: {
-        width: 11,
-        height: 11,
+    contactStatePillMuted: {
+        backgroundColor: 'rgba(168, 106, 116, 0.14)',
+    },
+    contactStatePillText: {
+        color: '#FFFFFF',
+        fontSize: 11,
+        fontWeight: '800',
+    },
+    unreadBadge: {
+        minWidth: 26,
+        height: 26,
+        borderRadius: 13,
+        paddingHorizontal: 8,
+        backgroundColor: '#C84D61',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    unreadBadgeText: {
+        color: '#FFFFFF',
+        fontSize: 12,
+        fontWeight: '900',
+    },
+    emptyState: {
+        marginTop: 8,
+        paddingVertical: 20,
+        paddingHorizontal: 16,
+        borderRadius: 20,
+        backgroundColor: 'rgba(255,255,255,0.7)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+    },
+    emptyTitle: {
+        color: '#1D1D1F',
+        fontSize: 15,
+        fontWeight: '900',
+    },
+    emptyText: {
+        color: '#A46A74',
+        fontSize: 12,
+        fontWeight: '600',
+        textAlign: 'center',
+        lineHeight: 18,
     },
 });

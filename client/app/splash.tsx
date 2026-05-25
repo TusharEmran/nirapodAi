@@ -1,12 +1,16 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
+
+import { useAuth } from '@/providers/auth-provider';
 
 export default function SplashScreen() {
   const router = useRouter();
+  const { isReady, token } = useAuth();
   const scale = useRef(new Animated.Value(0.96)).current;
   const fade = useRef(new Animated.Value(0)).current;
+  const [hasElapsed, setHasElapsed] = useState(false);
 
   useEffect(() => {
     Animated.parallel([
@@ -24,11 +28,19 @@ export default function SplashScreen() {
     ]).start();
 
     const timer = setTimeout(() => {
-      router.replace('/(auth)/login');
+      setHasElapsed(true);
     }, 1800);
 
     return () => clearTimeout(timer);
-  }, [fade, router, scale]);
+  }, [fade, scale]);
+
+  useEffect(() => {
+    if (!isReady || !hasElapsed) {
+      return;
+    }
+
+    router.replace(token ? '/(tabs)' : '/(auth)/login');
+  }, [hasElapsed, isReady, router, token]);
 
   return (
     <View style={styles.screen}>
@@ -51,7 +63,10 @@ export default function SplashScreen() {
           <View style={[styles.loadingDot, styles.loadingDotLast]} />
         </View>
 
-        <Pressable style={styles.skipButton} onPress={() => router.replace('/(auth)/login')} accessibilityRole="button">
+        <Pressable
+          style={styles.skipButton}
+          onPress={() => router.replace(token ? '/(tabs)' : '/(auth)/login')}
+          accessibilityRole="button">
           <Text style={styles.skipButtonText}>Continue</Text>
         </Pressable>
       </Animated.View>
