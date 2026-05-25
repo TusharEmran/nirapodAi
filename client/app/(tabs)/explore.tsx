@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useEffect, useState, useRef } from 'react';
 import { StyleSheet, Text, View, TextInput, Pressable } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -14,22 +14,31 @@ export default function TabTwoScreen() {
     let isMounted = true;
 
     const loadLocation = async () => {
-      const permissions = await Location.getForegroundPermissionsAsync();
-      const nextPermissions = permissions.status === 'granted'
-        ? permissions
-        : await Location.requestForegroundPermissionsAsync();
+      try {
+        const servicesEnabled = await Location.hasServicesEnabledAsync();
+        if (!servicesEnabled) {
+          return;
+        }
 
-      if (!isMounted || nextPermissions.status !== 'granted') {
+        const permissions = await Location.getForegroundPermissionsAsync();
+        const nextPermissions = permissions.status === 'granted'
+          ? permissions
+          : await Location.requestForegroundPermissionsAsync();
+
+        if (!isMounted || nextPermissions.status !== 'granted') {
+          return;
+        }
+
+        const position = await Location.getCurrentPositionAsync({});
+
+        if (isMounted) {
+          setCurrentLocation({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          });
+        }
+      } catch {
         return;
-      }
-
-      const position = await Location.getCurrentPositionAsync({});
-
-      if (isMounted) {
-        setCurrentLocation({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        });
       }
     };
 
@@ -47,6 +56,7 @@ export default function TabTwoScreen() {
           <MapView
             ref={mapRef}
             style={StyleSheet.absoluteFillObject}
+            provider={PROVIDER_GOOGLE}
             initialRegion={{
               latitude: currentLocation.latitude,
               longitude: currentLocation.longitude,

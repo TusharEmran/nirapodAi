@@ -5,7 +5,7 @@ import { BlurView } from 'expo-blur';
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import MapView, { Marker } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 
 const quickActions = [
   { id: 'connectWatch', label: 'Connect\nwatch', icon: 'watch', accessibilityLabel: 'Connect smart watch for BP and heart rate monitoring' },
@@ -290,6 +290,7 @@ export default function HomeScreen() {
               <MapView
                 ref={mapRef}
                 style={styles.mapImage}
+                provider={PROVIDER_GOOGLE}
                 initialRegion={{
                   latitude: currentLocation.latitude,
                   longitude: currentLocation.longitude,
