@@ -9,7 +9,11 @@
       "distribution": "internal"
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_GOOGLE_MAP_API": "AIzaSyDY-4lyYUN-EV3Wv8c9oCW9kmQPfnqB8JA",
+        "EXPO_PUBLIC_AUTH_API_BASE_URL": "https://nirapodai.onrender.com"
+      }
     },
     "production": {
       "autoIncrement": true
