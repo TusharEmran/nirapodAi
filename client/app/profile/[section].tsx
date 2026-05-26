@@ -1,11 +1,12 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 
-import { fetchProfile, updateProfile, uploadMedia } from '@/lib/auth-api';
+import { addContact, deleteContact, fetchContacts, fetchProfile, type EmergencyContact, type SafetySettings, updateContact, updateProfile, uploadMedia, uploadMediaFile } from '@/lib/auth-api';
 import { useAuth } from '@/providers/auth-provider';
 
 type FieldConfig = {
@@ -59,26 +60,56 @@ const sectionConfig: Record<string, SectionConfig> = {
             { label: 'Silent alert mode', placeholder: 'Alert preference', value: 'On' },
         ],
     },
-    'privacy-controls': {
-        title: 'Privacy controls',
-        subtitle: 'Control visibility and sharing',
-        icon: 'lock-outline',
-        helper: 'Keep your account secure and decide how much information is visible.',
-        fields: [
-            { label: 'Profile visibility', placeholder: 'Who can see your profile', value: 'Trusted contacts only' },
-            { label: 'Location history', placeholder: 'Location history setting', value: 'Save for 24 hours' },
-            { label: 'Data sharing', placeholder: 'Data sharing setting', value: 'Minimal' },
-        ],
-    },
 };
+
+const safetyCountdownOptions = [5, 10, 15] as const;
+const sirenVolumeOptions = [
+    { value: 'low', label: 'Low' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'high', label: 'High' },
+] as const;
+const watchSensitivityOptions = [
+    { value: 'low', label: 'Low' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'high', label: 'High' },
+] as const;
+const silentModeOptions = [
+    { value: 'vibrate-only', label: 'Vibrate only' },
+    { value: 'flash-screen', label: 'Flash screen' },
+    { value: 'sound-alarm', label: 'Sound alarm' },
+] as const;
+const visibilityOptions = [
+    { value: 'public', label: 'Public' },
+    { value: 'contacts-only', label: 'Contacts only' },
+    { value: 'private', label: 'Private' },
+] as const;
+const retentionOptions = [
+    { value: 'off', label: 'Off' },
+    { value: '24-hours', label: '24 hours' },
+    { value: '7-days', label: '7 days' },
+    { value: '30-days', label: '30 days' },
+] as const;
+const messageAccessOptions = [
+    { value: 'anyone', label: 'Anyone' },
+    { value: 'contacts', label: 'Contacts' },
+    { value: 'app-users', label: 'App users' },
+] as const;
 
 export default function ProfileSectionScreen() {
     const router = useRouter();
     const params = useLocalSearchParams<{ section?: string }>();
-    const slug = params.section ?? 'edit-profile';
+    const slug = Array.isArray(params.section) ? params.section[0] ?? 'edit-profile' : params.section ?? 'edit-profile';
 
     if (slug === 'edit-profile') {
         return <BackendEditProfileScreen router={router} />;
+    }
+
+    if (slug === 'emergency-contacts') {
+        return <BackendEmergencyContactsScreen router={router} />;
+    }
+
+    if (slug === 'safety-settings') {
+        return <BackendSafetySettingsScreen router={router} />;
     }
 
     return <LocalSectionScreen router={router} slug={slug} />;
@@ -282,6 +313,538 @@ function BackendEditProfileScreen({ router }: { router: ReturnType<typeof useRou
     );
 }
 
+function BackendEmergencyContactsScreen({ router }: { router: ReturnType<typeof useRouter> }) {
+    const { token, refreshSession } = useAuth();
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [errorMessage, setErrorMessage] = useState('');
+    const [contacts, setContacts] = useState<EmergencyContact[]>([]);
+    const [mode, setMode] = useState<'add' | 'edit'>('add');
+    const [selectedContactId, setSelectedContactId] = useState('');
+    const [formValues, setFormValues] = useState({
+        name: '',
+        phone: '',
+        relationship: '',
+    });
+
+    useEffect(() => {
+        let mounted = true;
+
+        const loadContacts = async () => {
+            if (!token) {
+                setErrorMessage('Sign in again to manage your contacts.');
+                setLoading(false);
+                return;
+            }
+
+            try {
+                const response = await fetchContacts(token);
+                if (!mounted) {
+                    return;
+                }
+
+                setContacts(response.contacts);
+            } catch (error) {
+                if (mounted) {
+                    setErrorMessage(error instanceof Error ? error.message : 'Unable to load contacts.');
+                }
+            } finally {
+                if (mounted) {
+                    setLoading(false);
+                }
+            }
+        };
+
+        void loadContacts();
+
+        return () => {
+            mounted = false;
+        };
+    }, [token]);
+
+    const resetForm = () => {
+        setMode('add');
+        setSelectedContactId('');
+        setFormValues({
+            name: '',
+            phone: '',
+            relationship: '',
+        });
+    };
+
+    const openAddForm = () => {
+        setErrorMessage('');
+        resetForm();
+    };
+
+    const openEditForm = (contact: EmergencyContact) => {
+        setErrorMessage('');
+        setMode('edit');
+        setSelectedContactId(contact.id);
+        setFormValues({
+            name: contact.name,
+            phone: contact.phone,
+            relationship: contact.relationship || '',
+        });
+    };
+
+    const handleSubmit = async () => {
+        if (!token) {
+            setErrorMessage('Sign in again to manage your contacts.');
+            return;
+        }
+
+        if (!formValues.name.trim() || !formValues.phone.trim()) {
+            setErrorMessage('Enter a contact name and phone number.');
+            return;
+        }
+
+        try {
+            setSaving(true);
+            setErrorMessage('');
+
+            const payload = {
+                name: formValues.name.trim(),
+                phone: formValues.phone.trim(),
+                relationship: formValues.relationship.trim(),
+            };
+
+            const response = mode === 'edit' && selectedContactId
+                ? await updateContact(token, selectedContactId, payload)
+                : await addContact(token, payload);
+
+            setContacts(response.contacts);
+            await refreshSession();
+            resetForm();
+        } catch (error) {
+            setErrorMessage(error instanceof Error ? error.message : 'Unable to save this contact right now.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleDelete = (contact: EmergencyContact) => {
+        if (!token) {
+            setErrorMessage('Sign in again to manage your contacts.');
+            return;
+        }
+
+        Alert.alert(
+            'Delete contact',
+            `Remove ${contact.name} from your emergency contacts?`,
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            setSaving(true);
+                            setErrorMessage('');
+
+                            const response = await deleteContact(token, contact.id);
+                            setContacts(response.contacts);
+                            await refreshSession();
+
+                            if (selectedContactId === contact.id) {
+                                resetForm();
+                            }
+                        } catch (error) {
+                            setErrorMessage(error instanceof Error ? error.message : 'Unable to delete this contact right now.');
+                        } finally {
+                            setSaving(false);
+                        }
+                    },
+                },
+            ],
+        );
+    };
+
+    return (
+        <View style={styles.screen}>
+            <View style={styles.header}>
+                <Pressable onPress={() => router.back()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
+                    <MaterialCommunityIcons name="chevron-left" size={26} color="#C84D61" />
+                </Pressable>
+
+                <View style={styles.headerTextWrap}>
+                    <Text style={styles.headerTitle}>Emergency contacts</Text>
+                    <Text style={styles.headerSubtitle}>Add, edit, or delete trusted contacts</Text>
+                </View>
+
+                <View style={styles.headerBadge}>
+                    <MaterialCommunityIcons name="account-multiple-outline" size={20} color="#C84D61" />
+                </View>
+            </View>
+
+            <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} showsVerticalScrollIndicator={false}>
+
+                <View style={styles.formCard}>
+                    <Text style={styles.sectionFormTitle}>{mode === 'edit' ? 'Edit contact' : 'Add contact'}</Text>
+                    <Text style={styles.sectionFormHelper}>
+                        {mode === 'edit' ? 'Update the contact details below, then save your changes.' : 'Fill in a contact and save it to your emergency list.'}
+                    </Text>
+
+                    <ProfileInput label="Name" value={formValues.name} onChangeText={(value) => setFormValues((current) => ({ ...current, name: value }))} placeholder="Contact name" />
+                    <ProfileInput label="Phone number" value={formValues.phone} onChangeText={(value) => setFormValues((current) => ({ ...current, phone: value }))} placeholder="Contact phone number" keyboardType="phone-pad" />
+                    <ProfileInput label="Relationship" value={formValues.relationship} onChangeText={(value) => setFormValues((current) => ({ ...current, relationship: value }))} placeholder="Mother, brother, friend..." />
+
+                    <View style={styles.contactFormActions}>
+                        {mode === 'edit' ? (
+                            <Pressable style={styles.formGhostButton} onPress={resetForm} accessibilityRole="button" disabled={saving}>
+                                <Text style={styles.formGhostButtonText}>Cancel edit</Text>
+                            </Pressable>
+                        ) : null}
+
+                        <Pressable style={[styles.primaryButton, saving && styles.primaryButtonDisabled]} onPress={() => void handleSubmit()} accessibilityRole="button" disabled={saving || loading}>
+                            <Text style={styles.primaryButtonText}>{saving ? 'Saving...' : mode === 'edit' ? 'Save changes' : 'Add contact'}</Text>
+                        </Pressable>
+                    </View>
+                </View>
+
+                <View style={styles.formCard}>
+                    <View style={styles.listHeaderRow}>
+                        <Text style={styles.sectionFormTitle}>Saved contacts</Text>
+                        {loading ? <Text style={styles.listMetaText}>Loading...</Text> : <Text style={styles.listMetaText}>{contacts.length} total</Text>}
+                    </View>
+
+                    {loading ? (
+                        <View style={styles.tipCard}>
+                            <MaterialCommunityIcons name="loading" size={18} color="#C84D61" />
+                            <Text style={styles.tipText}>Loading contacts...</Text>
+                        </View>
+                    ) : null}
+
+                    {contacts.length ? contacts.map((contact) => (
+                        <View key={contact.id} style={styles.contactCard}>
+                            <View style={[styles.contactAvatar, { backgroundColor: contact.avatar }]}>
+                                <Text style={styles.contactAvatarText}>{contact.initials}</Text>
+                            </View>
+
+                            <View style={styles.contactDetails}>
+                                <Text style={styles.contactName}>{contact.name}</Text>
+                                <Text style={styles.contactPhone}>{contact.phone}</Text>
+                                {contact.relationship ? <Text style={styles.contactRelationship}>{contact.relationship}</Text> : null}
+                                {contact.isAppUser ? <Text style={styles.appUserBadge}>On the app</Text> : <Text style={styles.nonAppUserBadge}>Not on the app</Text>}
+                            </View>
+
+                            <View style={styles.contactActionStack}>
+                                <Pressable style={styles.smallActionButton} onPress={() => openEditForm(contact)} accessibilityRole="button">
+                                    <MaterialCommunityIcons name="pencil-outline" size={18} color="#C84D61" />
+                                </Pressable>
+                                <Pressable style={styles.smallActionButton} onPress={() => handleDelete(contact)} accessibilityRole="button">
+                                    <MaterialCommunityIcons name="trash-can-outline" size={18} color="#C84D61" />
+                                </Pressable>
+                            </View>
+                        </View>
+                    )) : (
+                        loading ? null : <Text style={styles.emptyText}>No emergency contacts yet. Add your first trusted contact above.</Text>
+                    )}
+                </View>
+
+                {errorMessage ? (
+                    <View style={styles.tipCard}>
+                        <MaterialCommunityIcons name="alert-circle-outline" size={18} color="#C84D61" />
+                        <Text style={styles.tipText}>{errorMessage}</Text>
+                    </View>
+                ) : null}
+            </ScrollView>
+
+            <View style={styles.footer}>
+                <Pressable style={styles.secondaryButton} onPress={() => router.back()} accessibilityRole="button">
+                    <Text style={styles.secondaryButtonText}>Done</Text>
+                </Pressable>
+            </View>
+        </View>
+    );
+}
+
+function BackendSafetySettingsScreen({ router }: { router: ReturnType<typeof useRouter> }) {
+    const { token, refreshSession } = useAuth();
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [uploadingAudio, setUploadingAudio] = useState(false);
+    const [errorMessage, setErrorMessage] = useState('');
+    const [formValues, setFormValues] = useState({
+        sosCountdownSeconds: 10,
+        fakeCallLineNumber: '',
+        sirenPassword: '122',
+        sirenVolume: 'high' as SafetySettings['sirenVolume'],
+        sirenAutoStopSeconds: 60,
+        watchSensitivity: 'medium' as SafetySettings['watchSensitivity'],
+        silentEmergencyMode: 'sound-alarm' as SafetySettings['silentEmergencyMode'],
+        fakeCallAudioUrl: '',
+        fakeCallAudioName: '',
+    });
+
+    useEffect(() => {
+        let mounted = true;
+
+        const loadProfile = async () => {
+            if (!token) {
+                setErrorMessage('Sign in again to adjust safety settings.');
+                setLoading(false);
+                return;
+            }
+
+            try {
+                const response = await fetchProfile(token);
+                if (!mounted) {
+                    return;
+                }
+
+                const settings = response.user.safetySettings;
+
+                setFormValues({
+                    sosCountdownSeconds: settings?.sosCountdownSeconds || 10,
+                    fakeCallLineNumber: settings?.fakeCallLineNumber || response.user.emergencyLineNumber || '',
+                    sirenPassword: settings?.sirenPassword || '122',
+                    sirenVolume: settings?.sirenVolume || 'high',
+                    sirenAutoStopSeconds: settings?.sirenAutoStopSeconds || 60,
+                    watchSensitivity: settings?.watchSensitivity || 'medium',
+                    silentEmergencyMode: settings?.silentEmergencyMode || 'sound-alarm',
+                    fakeCallAudioUrl: settings?.fakeCallAudioUrl || '',
+                    fakeCallAudioName: settings?.fakeCallAudioName || '',
+                });
+            } catch (error) {
+                if (mounted) {
+                    setErrorMessage(error instanceof Error ? error.message : 'Unable to load safety settings.');
+                }
+            } finally {
+                if (mounted) {
+                    setLoading(false);
+                }
+            }
+        };
+
+        void loadProfile();
+
+        return () => {
+            mounted = false;
+        };
+    }, [token]);
+
+    const updateField = <K extends keyof typeof formValues>(key: K, value: (typeof formValues)[K]) => {
+        setFormValues((currentValues) => ({
+            ...currentValues,
+            [key]: value,
+        }));
+    };
+
+    const pickFakeCallAudio = async () => {
+        if (!token) {
+            setErrorMessage('Sign in again to upload a ringtone.');
+            return;
+        }
+
+        try {
+            const result = await DocumentPicker.getDocumentAsync({
+                type: ['audio/*'],
+                copyToCacheDirectory: true,
+                multiple: false,
+            });
+
+            if (result.canceled || !result.assets[0]?.uri) {
+                return;
+            }
+
+            setUploadingAudio(true);
+            setErrorMessage('');
+
+            const audioAsset = result.assets[0];
+            const uploaded = await uploadMediaFile(token, {
+                uri: audioAsset.uri,
+                folder: 'nirapodai/fake-call-audio',
+                name: audioAsset.name,
+                type: audioAsset.mimeType,
+            });
+
+            setFormValues((currentValues) => ({
+                ...currentValues,
+                fakeCallAudioUrl: uploaded.url,
+                fakeCallAudioName: result.assets[0]?.name || 'Custom ringtone',
+            }));
+        } catch (error) {
+            setErrorMessage(error instanceof Error ? error.message : 'Unable to upload ringtone right now.');
+        } finally {
+            setUploadingAudio(false);
+        }
+    };
+
+    const handleSave = async () => {
+        if (!token) {
+            setErrorMessage('Sign in again to save safety settings.');
+            return;
+        }
+
+        try {
+            setSaving(true);
+            setErrorMessage('');
+
+            await updateProfile(token, {
+                emergencyLineNumber: formValues.fakeCallLineNumber,
+                safetySettings: {
+                    ...formValues,
+                },
+            });
+            await refreshSession();
+            Alert.alert('Safety settings saved', 'Your emergency behavior settings have been updated.');
+            router.back();
+        } catch (error) {
+            setErrorMessage(error instanceof Error ? error.message : 'Unable to save safety settings right now.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <View style={styles.screen}>
+            <View style={styles.header}>
+                <Pressable onPress={() => router.back()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
+                    <MaterialCommunityIcons name="chevron-left" size={26} color="#C84D61" />
+                </Pressable>
+
+                <View style={styles.headerTextWrap}>
+                    <Text style={styles.headerTitle}>Safety settings</Text>
+                    <Text style={styles.headerSubtitle}>Control how emergencies behave</Text>
+                </View>
+
+                <View style={styles.headerBadge}>
+                    <MaterialCommunityIcons name="shield-lock-outline" size={20} color="#C84D61" />
+                </View>
+            </View>
+
+            <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} showsVerticalScrollIndicator={false}>
+                <View style={styles.summaryCard}>
+                    <View style={styles.summaryRow}>
+                        <View style={styles.summaryIconWrap}>
+                            <MaterialCommunityIcons name="shield-lock-outline" size={22} color="#C84D61" />
+                        </View>
+                        <View style={styles.summaryTextWrap}>
+                            <Text style={styles.summaryTitle}>Emergency behavior</Text>
+                            <Text style={styles.summaryText}>Tune the SOS countdown, alert scope, siren, watch trigger, and fake-call audio.</Text>
+                        </View>
+                    </View>
+                </View>
+
+                <View style={styles.formCard}>
+                    <Text style={styles.sectionFormTitle}>SOS countdown</Text>
+                    <View style={styles.choiceRow}>
+                        {safetyCountdownOptions.map((option) => (
+                            <ChoiceChip
+                                key={option}
+                                label={`${option}s`}
+                                active={formValues.sosCountdownSeconds === option}
+                                onPress={() => updateField('sosCountdownSeconds', option)}
+                            />
+                        ))}
+                    </View>
+                </View>
+
+                <View style={styles.formCard}>
+                    <Text style={styles.sectionFormTitle}>Siren password</Text>
+                    <Text style={styles.sectionFormHelper}>Set the password required to stop the emergency siren on this device.</Text>
+                    <ProfileInput
+                        label="Cancel password"
+                        value={formValues.sirenPassword}
+                        onChangeText={(value) => updateField('sirenPassword', value)}
+                        placeholder="Enter siren password"
+                        secureTextEntry
+                    />
+                </View>
+
+                <View style={styles.formCard}>
+                    <Text style={styles.sectionFormTitle}>Fake call number</Text>
+                    <ProfileInput
+                        label="Emergency line"
+                        value={formValues.fakeCallLineNumber}
+                        onChangeText={(value) => updateField('fakeCallLineNumber', value)}
+                        placeholder="Enter fake call number"
+                        keyboardType="phone-pad"
+                    />
+                </View>
+
+                <View style={styles.formCard}>
+                    <Text style={styles.sectionFormTitle}>Fake call audio</Text>
+                    <Text style={styles.sectionFormHelper}>Choose a ringtone or audio clip that the fake incoming call should play.</Text>
+
+                    <Pressable style={styles.photoButton} onPress={() => void pickFakeCallAudio()} accessibilityRole="button" disabled={uploadingAudio}>
+                        <MaterialCommunityIcons name="music-note-plus" size={18} color="#C84D61" />
+                        <Text style={styles.photoButtonText}>{uploadingAudio ? 'Uploading...' : formValues.fakeCallAudioName ? 'Change ringtone' : 'Select ringtone audio'}</Text>
+                    </Pressable>
+
+                    <Text style={styles.ringtoneMetaText}>{formValues.fakeCallAudioName ? `Selected: ${formValues.fakeCallAudioName}` : 'No custom audio selected yet.'}</Text>
+                </View>
+
+                <View style={styles.formCard}>
+                    <Text style={styles.sectionFormTitle}>Siren and watch</Text>
+                    <Text style={styles.sectionFormHelper}>Adjust alarm volume, auto-stop time, audio distress sensitivity, and silent mode behavior.</Text>
+
+                    <View style={styles.choiceBlock}>
+                        <Text style={styles.choiceLabel}>Siren volume</Text>
+                        <View style={styles.choiceRow}>
+                            {sirenVolumeOptions.map((option) => (
+                                <ChoiceChip key={option.value} label={option.label} active={formValues.sirenVolume === option.value} onPress={() => updateField('sirenVolume', option.value)} />
+                            ))}
+                        </View>
+                    </View>
+
+                    <View style={styles.choiceBlock}>
+                        <Text style={styles.choiceLabel}>Siren auto-stop</Text>
+                        <View style={styles.choiceRow}>
+                            {[30, 60, 90].map((option) => (
+                                <ChoiceChip key={option} label={`${option}s`} active={formValues.sirenAutoStopSeconds === option} onPress={() => updateField('sirenAutoStopSeconds', option)} />
+                            ))}
+                        </View>
+                    </View>
+
+                    <View style={styles.choiceBlock}>
+                        <Text style={styles.choiceLabel}>Watch/audio trigger sensitivity</Text>
+                        <View style={styles.choiceRow}>
+                            {watchSensitivityOptions.map((option) => (
+                                <ChoiceChip key={option.value} label={option.label} active={formValues.watchSensitivity === option.value} onPress={() => updateField('watchSensitivity', option.value)} />
+                            ))}
+                        </View>
+                    </View>
+
+                    <View style={styles.choiceBlock}>
+                        <Text style={styles.choiceLabel}>Silent emergency mode</Text>
+                        <View style={styles.choiceStack}>
+                            {silentModeOptions.map((option) => (
+                                <ChoiceChip key={option.value} label={option.label} active={formValues.silentEmergencyMode === option.value} onPress={() => updateField('silentEmergencyMode', option.value)} />
+                            ))}
+                        </View>
+                    </View>
+                </View>
+
+                {errorMessage ? (
+                    <View style={styles.tipCard}>
+                        <MaterialCommunityIcons name="alert-circle-outline" size={18} color="#C84D61" />
+                        <Text style={styles.tipText}>{errorMessage}</Text>
+                    </View>
+                ) : null}
+            </ScrollView>
+
+            <View style={styles.footer}>
+                <Pressable style={styles.secondaryButton} onPress={() => router.back()} accessibilityRole="button">
+                    <Text style={styles.secondaryButtonText}>Cancel</Text>
+                </Pressable>
+                <Pressable style={[styles.primaryButton, saving && styles.primaryButtonDisabled]} onPress={() => void handleSave()} accessibilityRole="button" disabled={saving || loading}>
+                    <Text style={styles.primaryButtonText}>{saving ? 'Saving...' : 'Save changes'}</Text>
+                </Pressable>
+            </View>
+        </View>
+    );
+}
+
+function ChoiceChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+    return (
+        <Pressable onPress={onPress} style={[styles.choiceChip, active && styles.choiceChipActive]} accessibilityRole="button">
+            <Text style={[styles.choiceChipText, active && styles.choiceChipTextActive]}>{label}</Text>
+        </Pressable>
+    );
+}
+
 function LocalSectionScreen({ router, slug }: { router: ReturnType<typeof useRouter>; slug: string }) {
     const config = sectionConfig[slug] ?? sectionConfig['edit-profile'];
     const [fieldValues, setFieldValues] = useState(() =>
@@ -364,6 +927,7 @@ function ProfileInput({
     placeholder,
     keyboardType,
     multiline,
+    secureTextEntry,
 }: {
     label: string;
     value: string;
@@ -371,6 +935,7 @@ function ProfileInput({
     placeholder: string;
     keyboardType?: 'default' | 'phone-pad';
     multiline?: boolean;
+    secureTextEntry?: boolean;
 }) {
     return (
         <View style={styles.fieldBlock}>
@@ -383,6 +948,7 @@ function ProfileInput({
                 style={[styles.input, multiline && styles.textArea]}
                 keyboardType={keyboardType}
                 multiline={multiline}
+                secureTextEntry={secureTextEntry}
                 textAlignVertical={multiline ? 'top' : 'center'}
             />
         </View>
@@ -497,6 +1063,168 @@ const styles = StyleSheet.create({
         fontSize: 13,
         fontWeight: '800',
     },
+    choiceRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 10,
+    },
+    choiceStack: {
+        gap: 10,
+    },
+    choiceBlock: {
+        gap: 10,
+    },
+    choiceLabel: {
+        color: '#1D1D1F',
+        fontSize: 14,
+        fontWeight: '800',
+    },
+    choiceDescription: {
+        color: '#7D6A70',
+        fontSize: 12,
+        lineHeight: 17,
+        fontWeight: '600',
+    },
+    choiceChip: {
+        minHeight: 44,
+        paddingHorizontal: 14,
+        borderRadius: 999,
+        backgroundColor: '#F8EEF0',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    choiceChipActive: {
+        backgroundColor: '#C84D61',
+    },
+    choiceChipText: {
+        color: '#C84D61',
+        fontSize: 13,
+        fontWeight: '800',
+    },
+    choiceChipTextActive: {
+        color: '#FFFFFF',
+    },
+    ringtoneMetaText: {
+        color: '#7D6A70',
+        fontSize: 12,
+        fontWeight: '600',
+        lineHeight: 18,
+    },
+    toggleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
+    },
+    toggleCopy: {
+        flex: 1,
+        gap: 4,
+    },
+    toggleChip: {
+        width: 54,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: '#EAD8DC',
+        padding: 4,
+        justifyContent: 'center',
+    },
+    toggleChipActive: {
+        backgroundColor: '#C84D61',
+    },
+    toggleDot: {
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        backgroundColor: '#FFFFFF',
+        alignSelf: 'flex-start',
+    },
+    toggleDotActive: {
+        alignSelf: 'flex-end',
+    },
+    summaryCard: {
+        borderRadius: 28,
+        backgroundColor: 'rgba(255,255,255,0.98)',
+        padding: 18,
+        gap: 14,
+        shadowColor: '#7A2434',
+        shadowOpacity: 0.1,
+        shadowRadius: 16,
+        shadowOffset: { width: 0, height: 8 },
+        elevation: 6,
+    },
+    summaryRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 12,
+    },
+    summaryIconWrap: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: '#F8EEF0',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    summaryTextWrap: {
+        flex: 1,
+        gap: 4,
+    },
+    summaryTitle: {
+        color: '#1D1D1F',
+        fontSize: 18,
+        fontWeight: '900',
+    },
+    summaryText: {
+        color: '#7D6A70',
+        fontSize: 13,
+        lineHeight: 19,
+        fontWeight: '600',
+    },
+    summaryActions: {
+        flexDirection: 'row',
+        gap: 10,
+        alignItems: 'center',
+    },
+    primaryInlineButton: {
+        flex: 1,
+        minHeight: 50,
+        borderRadius: 999,
+        backgroundColor: '#C84D61',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexDirection: 'row',
+        gap: 8,
+    },
+    primaryInlineButtonText: {
+        color: '#FFFFFF',
+        fontSize: 14,
+        fontWeight: '900',
+    },
+    countBadge: {
+        minHeight: 50,
+        borderRadius: 999,
+        paddingHorizontal: 14,
+        backgroundColor: '#F8EEF0',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    countBadgeText: {
+        color: '#C84D61',
+        fontSize: 13,
+        fontWeight: '800',
+    },
+    sectionFormTitle: {
+        color: '#1D1D1F',
+        fontSize: 18,
+        fontWeight: '900',
+    },
+    sectionFormHelper: {
+        color: '#7D6A70',
+        fontSize: 13,
+        lineHeight: 19,
+        fontWeight: '600',
+    },
     formCard: {
         borderRadius: 28,
         backgroundColor: 'rgba(255,255,255,0.96)',
@@ -532,6 +1260,101 @@ const styles = StyleSheet.create({
     textArea: {
         minHeight: 92,
         paddingTop: 12,
+    },
+    contactFormActions: {
+        flexDirection: 'row',
+        gap: 10,
+        marginTop: 4,
+    },
+    formGhostButton: {
+        minHeight: 52,
+        borderRadius: 999,
+        paddingHorizontal: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#F8EEF0',
+    },
+    formGhostButtonText: {
+        color: '#C84D61',
+        fontSize: 14,
+        fontWeight: '800',
+    },
+    contactCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        paddingVertical: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: 'rgba(200,77,97,0.08)',
+    },
+    contactAvatar: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    contactAvatarText: {
+        color: '#FFFFFF',
+        fontSize: 15,
+        fontWeight: '900',
+    },
+    contactDetails: {
+        flex: 1,
+        gap: 2,
+    },
+    contactName: {
+        color: '#1D1D1F',
+        fontSize: 15,
+        fontWeight: '900',
+    },
+    contactPhone: {
+        color: '#7D6A70',
+        fontSize: 12,
+        fontWeight: '700',
+    },
+    contactRelationship: {
+        color: '#8F6A73',
+        fontSize: 11,
+        fontWeight: '700',
+    },
+    appUserBadge: {
+        color: '#2F7E52',
+        fontSize: 11,
+        fontWeight: '800',
+    },
+    nonAppUserBadge: {
+        color: '#B85A6B',
+        fontSize: 11,
+        fontWeight: '800',
+    },
+    contactActionStack: {
+        gap: 8,
+    },
+    smallActionButton: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: '#F8EEF0',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    emptyText: {
+        color: '#7D6A70',
+        fontSize: 13,
+        lineHeight: 19,
+        fontWeight: '600',
+    },
+    listHeaderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
+    },
+    listMetaText: {
+        color: '#B85A6B',
+        fontSize: 12,
+        fontWeight: '800',
     },
     tipCard: {
         borderRadius: 22,

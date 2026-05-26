@@ -94,10 +94,10 @@ async function sendOtpEmail(user, otpCode, purpose) {
                 otp: otpCode,
                 verification_code: otpCode,
                 purpose,
-                app_name: 'Her Shield',
-                from_name: process.env.EMAILJS_FROM_NAME || 'Her Shield',
+                app_name: 'Sentinel AI',
+                from_name: process.env.EMAILJS_FROM_NAME || 'Sentinel AI',
                 expires_in_minutes: Number(process.env.OTP_TTL_MINUTES || 10),
-                message: `Your Her Shield OTP is ${otpCode}. It expires in ${Number(process.env.OTP_TTL_MINUTES || 10)} minutes.`,
+                message: `Your Sentinel AI OTP is ${otpCode}. It expires in ${Number(process.env.OTP_TTL_MINUTES || 10)} minutes.`,
             },
         }),
     });
@@ -123,6 +123,8 @@ function publicUser(user) {
         medicalNote: user.medicalNote || '',
         emergencyLineNumber: user.emergencyLineNumber || '',
         profileImageUrl: user.profileImageUrl || '',
+        safetySettings: user.safetySettings || {},
+        privacySettings: user.privacySettings || {},
         emergencyContacts: Array.isArray(user.emergencyContacts)
             ? user.emergencyContacts.map((contact) => ({
                 id: contact._id,
@@ -222,21 +224,18 @@ async function login(req, res, next) {
             return res.status(401).json({ success: false, message: 'Invalid credentials' });
         }
 
-        const otpCode = await storeOtp(user, 'login');
-        await sendOtpEmail(user, otpCode, 'login');
-        const devOtp = process.env.NODE_ENV === 'production' ? undefined : otpCode;
+        user.isVerified = true;
+        user.lastLoginAt = new Date();
+        user.otp = { codeHash: null, expiresAt: null, purpose: null };
+        await user.save();
+
+        const token = issueToken(user);
 
         return res.status(200).json({
             success: true,
-            message: 'OTP sent. Verify to continue.',
-            otpRequired: true,
+            message: 'Signed in successfully',
+            token,
             user: publicUser(user),
-            challenge: {
-                userId: user._id,
-                expiresAt: user.otp.expiresAt,
-                purpose: user.otp.purpose,
-            },
-            ...(devOtp ? { devOtp } : {}),
         });
     } catch (error) {
         return next(error);

@@ -61,7 +61,7 @@ export default function SignupScreen() {
             <Text style={styles.badgeText}>Create account</Text>
           </View>
 
-          <Text style={styles.title}>Join Her Shield</Text>
+          <Text style={styles.title}>Join Sentinel AI</Text>
           <Text style={styles.subtitle}>
             Set up your profile and verify your number with OTP before entering the app.
           </Text>

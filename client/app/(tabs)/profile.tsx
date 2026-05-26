@@ -14,7 +14,6 @@ const profileStats = [
 const profileActions = [
     { id: '1', label: 'Emergency contacts', icon: 'account-multiple-outline', route: 'emergency-contacts' },
     { id: '2', label: 'Safety settings', icon: 'shield-cog-outline', route: 'safety-settings' },
-    { id: '3', label: 'Privacy controls', icon: 'lock-outline', route: 'privacy-controls' },
 ] as const;
 
 export default function ProfileScreen() {
@@ -39,17 +38,7 @@ export default function ProfileScreen() {
                     )}
                 </View>
 
-                <Text style={styles.name}>{user?.fullName || 'Her Shield User'}</Text>
-                <Text style={styles.subtitle}>{user?.city ? `${user.city} • Protected account` : 'Protected account • Ghana'}</Text>
-
-                <View style={styles.statRow}>
-                    {profileStats.map((stat) => (
-                        <View key={stat.id} style={styles.statCard}>
-                            <Text style={styles.statValue}>{stat.value}</Text>
-                            <Text style={styles.statLabel}>{stat.label}</Text>
-                        </View>
-                    ))}
-                </View>
+                <Text style={styles.name}>{user?.fullName || 'Sentinel AI User'}</Text>
             </View>
 
             <View style={styles.sectionCard}>
@@ -59,7 +48,7 @@ export default function ProfileScreen() {
                 </View>
 
                 <Pressable
-                    onPress={() => router.push('/profile/edit-profile')}
+                    onPress={() => router.push({ pathname: '/profile/[section]', params: { section: 'edit-profile' } })}
                     style={({ pressed }: { pressed: boolean }) => [styles.actionRow, pressed && styles.actionRowPressed]}
                     accessibilityRole="button"
                 >
@@ -73,7 +62,7 @@ export default function ProfileScreen() {
                 {profileActions.map((action, index) => (
                     <Pressable
                         key={action.id}
-                        onPress={() => router.push(`/profile/${action.route}`)}
+                        onPress={() => router.push({ pathname: '/profile/[section]', params: { section: action.route } })}
                         style={({ pressed }: { pressed: boolean }) => [
                             styles.actionRow,
                             index === profileActions.length - 1 && styles.actionRowLast,
@@ -98,12 +87,12 @@ export default function ProfileScreen() {
 
                 <View style={styles.infoBlock}>
                     <Text style={styles.infoLabel}>Primary contact</Text>
-                    <Text style={styles.infoValue}>{user?.primaryContact || 'Mom • +233 501 497 265'}</Text>
+                    <Text style={styles.infoValue}>{user?.primaryContact || ''}</Text>
                 </View>
 
                 <View style={styles.infoBlock}>
                     <Text style={styles.infoLabel}>Medical note</Text>
-                    <Text style={styles.infoValue}>{user?.medicalNote || 'No known allergies • Emergency asthmatic inhaler carried'}</Text>
+                    <Text style={styles.infoValue}>{user?.medicalNote || ''}</Text>
                 </View>
             </View>
 

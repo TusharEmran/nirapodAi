@@ -1,17 +1,18 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useMemo, useState, useRef } from 'react';
+import { Linking, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { fetchChatThread, sendChatMessage, type ChatMessage, type ChatThreadDetails } from '@/lib/auth-api';
 import { useAuth } from '@/providers/auth-provider';
 
 export default function ChatThreadScreen() {
+    const scrollViewRef = useRef<ScrollView>(null);
     const router = useRouter();
     const { token } = useAuth();
-    const params = useLocalSearchParams<{ id?: string; photoUri?: string }>();
+    const params = useLocalSearchParams<{ id?: string; photoUri?: string; imageUrl?: string }>();
     const photoUri = typeof params.photoUri === 'string' ? params.photoUri : null;
+    const imageUrl = typeof params.imageUrl === 'string' ? params.imageUrl : null;
     const [thread, setThread] = useState<ChatThreadDetails | null>(null);
     const [message, setMessage] = useState('');
     const [loading, setLoading] = useState(true);
@@ -53,10 +54,10 @@ export default function ChatThreadScreen() {
         return () => {
             mounted = false;
         };
-    }, [params.id, token]);
+    }, [params.id, photoUri, token]);
 
     useEffect(() => {
-        if (!token || !params.id || !photoUri || photoInjected) {
+        if (!token || !params.id || !imageUrl || photoInjected) {
             return;
         }
 
@@ -65,12 +66,21 @@ export default function ChatThreadScreen() {
         const postPhoto = async () => {
             try {
                 const response = await sendChatMessage(token, params.id as string, {
-                    imageUrl: photoUri,
-                    text: 'Snap sent from Her Shield.',
+                    imageUrl,
+                    text: 'Snap sent from Sentinel AI.',
                 });
 
                 if (mounted) {
-                    setThread(response.thread);
+                    const postedMessageId = response.message?.id;
+
+                    setThread({
+                        ...response.thread,
+                        messages: response.thread.messages.map((message) =>
+                            postedMessageId && message.id === postedMessageId
+                                ? { ...message, localImageUri: photoUri || undefined }
+                                : message,
+                        ),
+                    });
                     setPhotoInjected(true);
                 }
             } catch (error) {
@@ -85,7 +95,7 @@ export default function ChatThreadScreen() {
         return () => {
             mounted = false;
         };
-    }, [photoInjected, photoUri, params.id, token]);
+    }, [imageUrl, photoInjected, photoUri, params.id, token]);
 
     const handleSendMessage = async () => {
         if (!token || !params.id || !message.trim()) {
@@ -126,32 +136,53 @@ export default function ChatThreadScreen() {
                 </View>
             </View>
 
-            <ScrollView style={styles.thread} contentContainerStyle={styles.threadContent} showsVerticalScrollIndicator={false}>
+            <ScrollView 
+                ref={scrollViewRef}
+                onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: false })}
+                style={styles.thread} 
+                contentContainerStyle={styles.threadContent} 
+                showsVerticalScrollIndicator={false}
+            >
                 <View style={styles.threadMeta}>
                     <Text style={styles.threadMetaText}>{loading ? 'Loading conversation...' : 'Today • Safe channel'}</Text>
                 </View>
 
                 {photoUri && !photoInjected ? (
                     <View style={[styles.messageBubble, styles.messageBubbleMine, styles.photoBubble]}>
-                        <Image source={{ uri: photoUri }} style={styles.photoPreview} contentFit="cover" />
-                        <Text style={[styles.messageText, styles.messageTextMine]}>Snap sent from Her Shield.</Text>
+                        <ChatPhoto uris={[photoUri]} />
+                        <Text style={[styles.messageText, styles.messageTextMine]}>Snap sent from Sentinel AI.</Text>
                         <Text style={[styles.messageTime, styles.messageTimeMine]}>Just now</Text>
                     </View>
                 ) : null}
 
-                {messages.map((messageItem) => (
-                    <View
-                        key={messageItem.id}
-                        style={[
-                            styles.messageBubble,
-                            messageItem.sender === 'me' ? styles.messageBubbleMine : styles.messageBubbleTheirs,
-                        ]}
-                    >
-                        {messageItem.imageUrl ? <Image source={{ uri: messageItem.imageUrl }} style={styles.photoPreview} contentFit="cover" /> : null}
-                        {messageItem.text ? <Text style={[styles.messageText, messageItem.sender === 'me' && styles.messageTextMine]}>{messageItem.text}</Text> : null}
-                        <Text style={[styles.messageTime, messageItem.sender === 'me' && styles.messageTimeMine]}>{messageItem.time}</Text>
-                    </View>
-                ))}
+                {messages.map((messageItem) => {
+                    const hasImage = Boolean(getValidImageUris([messageItem.localImageUri, messageItem.imageUrl]).length);
+
+                    return (
+                        <View
+                            key={messageItem.id}
+                            style={[
+                                styles.messageBubble,
+                                messageItem.sender === 'me' ? styles.messageBubbleMine : styles.messageBubbleTheirs,
+                                hasImage && styles.photoBubble,
+                            ]}
+                        >
+                            {hasImage ? <ChatPhoto uris={[messageItem.localImageUri, messageItem.imageUrl]} /> : null}
+                            {messageItem.locationUrl ? (
+                                <Pressable
+                                    style={styles.locationChip}
+                                    onPress={() => void Linking.openURL(messageItem.locationUrl || '')}
+                                    accessibilityRole="link"
+                                >
+                                    <MaterialCommunityIcons name="map-marker-radius" size={16} color="#C84D61" />
+                                    <Text style={styles.locationChipText}>Live location shared</Text>
+                                </Pressable>
+                            ) : null}
+                            {messageItem.text ? <Text style={[styles.messageText, messageItem.sender === 'me' && styles.messageTextMine]}>{messageItem.text}</Text> : null}
+                            <Text style={[styles.messageTime, messageItem.sender === 'me' && styles.messageTimeMine]}>{messageItem.time}</Text>
+                        </View>
+                    );
+                })}
             </ScrollView>
 
             <View style={styles.composer}>
@@ -186,6 +217,40 @@ export default function ChatThreadScreen() {
                 </View>
             ) : null}
         </View>
+    );
+}
+
+function getValidImageUris(uris: (string | null | undefined)[]) {
+    return uris.filter((uri): uri is string => {
+        const trimmedUri = String(uri || '').trim();
+        return Boolean(trimmedUri && trimmedUri !== 'undefined' && trimmedUri !== 'null');
+    });
+}
+
+function ChatPhoto({ uris }: { uris: (string | null | undefined)[] }) {
+    const imageUris = getValidImageUris(uris);
+    const imageUriKey = imageUris.join('|');
+    const [imageIndex, setImageIndex] = useState(0);
+
+    useEffect(() => {
+        setImageIndex(0);
+    }, [imageUriKey]);
+
+    if (!imageUris.length) {
+        return null;
+    }
+
+    const imageUri = imageUris[Math.min(imageIndex, imageUris.length - 1)];
+
+    return (
+        <Image
+            source={{ uri: imageUri }}
+            style={styles.photoPreview}
+            resizeMode="cover"
+            onError={() => {
+                setImageIndex((currentIndex) => Math.min(currentIndex + 1, imageUris.length - 1));
+            }}
+        />
     );
 }
 
@@ -286,6 +351,7 @@ const styles = StyleSheet.create({
         alignSelf: 'flex-end',
     },
     photoBubble: {
+        width: '82%',
         gap: 10,
     },
     photoPreview: {
@@ -293,6 +359,21 @@ const styles = StyleSheet.create({
         height: 220,
         borderRadius: 18,
         backgroundColor: '#D38B97',
+    },
+    locationChip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        borderRadius: 999,
+        backgroundColor: '#FFF8F9',
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+        alignSelf: 'flex-start',
+    },
+    locationChipText: {
+        color: '#C84D61',
+        fontSize: 12,
+        fontWeight: '800',
     },
     composer: {
         flexDirection: 'row',

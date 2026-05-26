@@ -1,13 +1,13 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { loginUser } from '@/lib/auth-api';
-import { setPendingOtpSession } from '@/lib/auth-session';
-import { toPendingOtpSession } from '@/lib/auth-session-mapping';
+import { useAuth } from '@/providers/auth-provider';
 
 export default function LoginScreen() {
   const router = useRouter();
+  const { signIn } = useAuth();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -30,13 +30,8 @@ export default function LoginScreen() {
         password,
       });
 
-      setPendingOtpSession(toPendingOtpSession(result));
-
-      if (result.devOtp) {
-        Alert.alert('Dev OTP', `Your verification code is ${result.devOtp}`);
-      }
-
-      router.push('/(auth)/otp');
+      await signIn(result.token, result.user);
+      router.replace('/(tabs)');
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Unable to sign in right now.');
     } finally {
@@ -48,7 +43,7 @@ export default function LoginScreen() {
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.heroCard}>
-          <Text style={styles.title}>Sign in to Her Shield</Text>
+          <Text style={styles.title}>Sign in to Sentinel AI</Text>
         </View>
 
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -85,7 +80,7 @@ export default function LoginScreen() {
               onPress={handleLogin}
               disabled={isSubmitting}
               accessibilityRole="button">
-              <Text style={styles.primaryButtonText}>{isSubmitting ? 'Sending OTP...' : 'Send OTP'}</Text>
+              <Text style={styles.primaryButtonText}>{isSubmitting ? 'Signing in...' : 'Sign in'}</Text>
             </Pressable>
 
             {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}

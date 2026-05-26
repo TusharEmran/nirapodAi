@@ -24,8 +24,8 @@ function uploadBuffer(buffer, folder) {
         const stream = cloudinary.uploader.upload_stream(
             {
                 folder: folder || 'nirapodai',
-                resource_type: 'image',
-                transformation: [{ quality: 'auto', fetch_format: 'auto' }],
+                resource_type: 'auto',
+                ...(String(folder || '').includes('profile') ? { transformation: [{ quality: 'auto', fetch_format: 'auto' }] } : {}),
             },
             (error, result) => {
                 if (error) {
@@ -48,12 +48,56 @@ async function uploadMedia(req, res, next) {
         }
 
         const folder = String(req.body.folder || 'nirapodai').trim();
+        const isAudio = String(req.file.mimetype || '').startsWith('audio/');
+
+        if (isAudio) {
+            readCloudinaryConfig();
+
+            const result = await new Promise((resolve, reject) => {
+                const stream = cloudinary.uploader.upload_stream(
+                    {
+                        folder: folder || 'nirapodai',
+                        resource_type: 'video',
+                    },
+                    (error, uploadResult) => {
+                        if (error) {
+                            reject(error);
+                            return;
+                        }
+
+                        resolve(uploadResult);
+                    },
+                );
+
+                stream.end(req.file.buffer);
+            });
+
+            const url = result?.secure_url;
+            const publicId = result?.public_id;
+
+            if (!url || !publicId) {
+                return res.status(502).json({ success: false, message: 'Upload finished without a usable audio URL' });
+            }
+
+            return res.status(200).json({
+                success: true,
+                url,
+                publicId,
+            });
+        }
+
         const result = await uploadBuffer(req.file.buffer, folder);
+        const url = result?.secure_url;
+        const publicId = result?.public_id;
+
+        if (!url || !publicId) {
+            return res.status(502).json({ success: false, message: 'Upload finished without a usable image URL' });
+        }
 
         return res.status(200).json({
             success: true,
-            url: result.secure_url,
-            publicId: result.public_id,
+            url,
+            publicId,
         });
     } catch (error) {
         return next(error);

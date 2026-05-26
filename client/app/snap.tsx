@@ -17,6 +17,7 @@ export default function SnapScreen() {
     const [cameraReady, setCameraReady] = useState(false);
     const [isCapturing, setIsCapturing] = useState(false);
     const [isSending, setIsSending] = useState(false);
+    const sendingRecipientIdRef = useRef<string | null>(null);
     const [photoUri, setPhotoUri] = useState<string | null>(null);
     const [lastSentRecipient, setLastSentRecipient] = useState<string | null>(null);
     const [sendError, setSendError] = useState('');
@@ -77,6 +78,10 @@ export default function SnapScreen() {
     };
 
     const sendSnap = async (recipient: EmergencyContact) => {
+        if (isSending || sendingRecipientIdRef.current) {
+            return;
+        }
+
         if (!photoUri) {
             return;
         }
@@ -87,23 +92,37 @@ export default function SnapScreen() {
         }
 
         if (!recipient.isAppUser) {
-            Alert.alert('Not on the app', `${recipient.name} is not a Her Shield user yet.`);
+            Alert.alert('Not on the app', `${recipient.name} is not a Sentinel AI user yet.`);
             return;
         }
 
+        let didNavigate = false;
+
         try {
+            sendingRecipientIdRef.current = recipient.id;
             setIsSending(true);
             setSendError('');
 
             const uploaded = await uploadMedia(token, photoUri, 'nirapodai/snaps');
+            const uploadedUrl = uploaded.url?.trim();
+
+            if (!uploadedUrl) {
+                throw new Error('The snap uploaded, but no image URL was returned.');
+            }
 
             setLastSentRecipient(recipient.name);
             await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            router.push(`/chat/${recipient.id}?photoUri=${encodeURIComponent(uploaded.url)}`);
+            didNavigate = true;
+            router.push(
+                `/chat/${recipient.id}?photoUri=${encodeURIComponent(photoUri)}&imageUrl=${encodeURIComponent(uploadedUrl)}`,
+            );
         } catch (error) {
             setSendError(error instanceof Error ? error.message : 'Unable to send this snap right now.');
         } finally {
-            setIsSending(false);
+            if (!didNavigate) {
+                sendingRecipientIdRef.current = null;
+                setIsSending(false);
+            }
         }
     };
 
@@ -136,7 +155,7 @@ export default function SnapScreen() {
                 </Pressable>
 
                 <View style={styles.topBarTitleWrap}>
-                    <Text style={styles.kicker}>Her Shield</Text>
+                    <Text style={styles.kicker}>Sentinel AI</Text>
                     <Text style={styles.headerTitle}>Snap and send</Text>
                 </View>
 
@@ -218,8 +237,9 @@ export default function SnapScreen() {
                         {contacts.map((recipient) => (
                             <Pressable
                                 key={recipient.id}
-                                style={styles.recipientCard}
+                                style={[styles.recipientCard, isSending && styles.recipientCardDisabled]}
                                 onPress={() => void sendSnap(recipient)}
+                                disabled={isSending}
                                 accessibilityRole="button"
                             >
                                 <View style={[styles.recipientAvatar, { backgroundColor: recipient.avatar }]}>
@@ -233,7 +253,7 @@ export default function SnapScreen() {
 
                                 <View style={[styles.recipientAction, !recipient.isAppUser && styles.recipientActionDisabled]}>
                                     <MaterialCommunityIcons name={recipient.isAppUser ? 'send' : 'account-cancel-outline'} size={16} color="#C84D61" />
-                                    <Text style={styles.recipientActionText}>{recipient.isAppUser ? 'Send' : 'Not on app'}</Text>
+                                    <Text style={styles.recipientActionText}>{recipient.isAppUser ? (isSending ? 'Sending...' : 'Send') : 'Not on app'}</Text>
                                 </View>
                             </Pressable>
                         ))}
@@ -241,7 +261,7 @@ export default function SnapScreen() {
                         {contacts.length > 0 && appRecipients.length === 0 ? (
                             <View style={styles.emptyRecipients}>
                                 <MaterialCommunityIcons name="account-cancel-outline" size={18} color="#A46A74" />
-                                <Text style={styles.emptyRecipientsText}>None of your saved contacts are on Her Shield yet.</Text>
+                                <Text style={styles.emptyRecipientsText}>None of your saved contacts are on Sentinel AI yet.</Text>
                             </View>
                         ) : null}
 
@@ -504,6 +524,9 @@ const styles = StyleSheet.create({
         borderRadius: 20,
         backgroundColor: '#FFF7F8',
         padding: 12,
+    },
+    recipientCardDisabled: {
+        opacity: 0.7,
     },
     recipientAvatar: {
         width: 44,

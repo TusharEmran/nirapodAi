@@ -3,7 +3,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { ML_API_BASE_URL } from '@/lib/auth-api';
+import { getMissingApiConfigMessage, ML_API_BASE_URL } from '@/lib/auth-api';
 
 const liveMetrics = [
     {
@@ -75,7 +75,6 @@ export default function WatchScreen() {
                     setRecording(null);
                     await newRecording.stopAndUnloadAsync();
                     const uri = newRecording.getURI();
-                    console.log('Recording stopped and stored at', uri);
 
                     if (!uri) return;
 
@@ -89,6 +88,12 @@ export default function WatchScreen() {
                     } as any);
 
                     console.log('Uploading to backend...');
+                    const missingConfigMessage = getMissingApiConfigMessage(ML_API_BASE_URL);
+
+                    if (missingConfigMessage) {
+                        throw new Error(missingConfigMessage);
+                    }
+
                     const response = await fetch(`${ML_API_BASE_URL}/analyze`, {
                         method: 'POST',
                         body: formData,
@@ -141,7 +146,7 @@ export default function WatchScreen() {
                         <MaterialCommunityIcons name="watch-variant" size={28} color="#C84D61" />
                     </View>
                     <View style={styles.deviceInfo}>
-                        <Text style={styles.deviceName}>Her Shield Watch</Text>
+                        <Text style={styles.deviceName}>Sentinel AI Watch</Text>
                         <Text style={styles.deviceStatus}>{isPaired ? 'Connected and syncing live data' : 'Not paired yet'}</Text>
                     </View>
                     <View style={[styles.statusPill, isPaired ? styles.statusPillActive : styles.statusPillIdle]}>

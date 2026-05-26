@@ -18,7 +18,7 @@ function getHostFromExpo() {
   return hostUri.replace(/^exp(s)?:\/\//, '').split(':')[0] || null;
 }
 
-function getDefaultBaseUrl(port: number) {
+function getDevelopmentBaseUrl(port: number) {
   if (Platform.OS === 'web') {
     return `http://localhost:${port}`;
   }
@@ -36,18 +36,51 @@ function getDefaultBaseUrl(port: number) {
   return `http://localhost:${port}`;
 }
 
-function getConfiguredBaseUrl(envValue: string | undefined, defaultPort: number) {
-  return envValue?.trim() || getDefaultBaseUrl(defaultPort);
+function getConfiguredBaseUrl(envValue: string | undefined, defaultPort: number, serviceName: string) {
+  const configuredUrl = envValue?.trim();
+
+  if (configuredUrl) {
+    return configuredUrl.replace(/\/$/, '');
+  }
+
+  if (__DEV__) {
+    return getDevelopmentBaseUrl(defaultPort);
+  }
+
+  return `missing-${serviceName}-base-url`;
 }
 
 export const API_BASE_URL = getConfiguredBaseUrl(
   process.env.EXPO_PUBLIC_AUTH_API_BASE_URL,
   8001,
+  'auth',
 );
-export const ML_API_BASE_URL = getConfiguredBaseUrl(process.env.EXPO_PUBLIC_ML_API_BASE_URL, 8000);
+export const ML_API_BASE_URL = getConfiguredBaseUrl(process.env.EXPO_PUBLIC_ML_API_BASE_URL, 8000, 'ml');
+
+function isMissingBaseUrl(baseUrl: string) {
+  return baseUrl.startsWith('missing-');
+}
+
+export function getMissingApiConfigMessage(baseUrl: string) {
+  if (baseUrl === API_BASE_URL && isMissingBaseUrl(baseUrl)) {
+    return 'Auth server URL is missing. Set EXPO_PUBLIC_AUTH_API_BASE_URL to your deployed HTTPS backend URL before building the APK.';
+  }
+
+  if (baseUrl === ML_API_BASE_URL && isMissingBaseUrl(baseUrl)) {
+    return 'ML server URL is missing. Set EXPO_PUBLIC_ML_API_BASE_URL to your deployed HTTPS ML backend URL before building the APK.';
+  }
+
+  return null;
+}
 
 function authNetworkError() {
-  return new Error(`Unable to reach the auth server at ${API_BASE_URL}. Make sure the Express server is running on port 8001.`);
+  const missingConfigMessage = getMissingApiConfigMessage(API_BASE_URL);
+
+  if (missingConfigMessage) {
+    return new Error(missingConfigMessage);
+  }
+
+  return new Error(`Unable to reach the auth server at ${API_BASE_URL}. Make sure this is a public backend URL reachable from this phone.`);
 }
 
 export class ApiError extends Error {
@@ -123,8 +156,35 @@ export type AuthUser = {
   medicalNote?: string;
   emergencyLineNumber?: string;
   profileImageUrl?: string;
+  safetySettings?: SafetySettings;
+  privacySettings?: PrivacySettings;
+  fakeCallAudioUrl?: string;
+  fakeCallAudioName?: string;
   emergencyContacts?: EmergencyContact[];
   isVerified: boolean;
+};
+
+export type SafetySettings = {
+  sosCountdownSeconds: number;
+  alertRecipients: 'all-contacts' | 'priority-contacts' | 'favorites';
+  liveLocationMode: 'always' | 'sos-only' | 'manual';
+  fakeCallLineNumber: string;
+  sirenPassword: string;
+  sirenVolume: 'low' | 'medium' | 'high';
+  sirenAutoStopSeconds: number;
+  watchSensitivity: 'low' | 'medium' | 'high';
+  silentEmergencyMode: 'vibrate-only' | 'flash-screen' | 'sound-alarm';
+  testSosMode: boolean;
+  fakeCallAudioUrl: string;
+  fakeCallAudioName: string;
+};
+
+export type PrivacySettings = {
+  profileVisibility: 'public' | 'contacts-only' | 'private';
+  locationHistoryRetention: 'off' | '24-hours' | '7-days' | '30-days';
+  messageAccess: 'anyone' | 'contacts' | 'app-users';
+  showOnlineStatus: boolean;
+  hidePhoneNumber: boolean;
 };
 
 export type EmergencyContact = {
@@ -161,6 +221,13 @@ export type VerifyOtpResponse = {
   user: AuthUser;
 };
 
+export type LoginResponse = {
+  success: boolean;
+  message: string;
+  token: string;
+  user: AuthUser;
+};
+
 export type MeResponse = {
   success: boolean;
   user: AuthUser;
@@ -168,7 +235,7 @@ export type MeResponse = {
 
 export type ProfileResponse = {
   success: boolean;
-  user: AuthUser & { emergencyContacts?: EmergencyContact[] };
+  user: AuthUser & { emergencyContacts?: EmergencyContact[]; safetySettings?: SafetySettings; privacySettings?: PrivacySettings };
 };
 
 export type ContactsResponse = {
@@ -177,14 +244,16 @@ export type ContactsResponse = {
 };
 
 export type UpdateProfilePayload = {
-  fullName: string;
-  phone: string;
-  city: string;
-  primaryContact: string;
-  secondaryContact: string;
-  medicalNote: string;
-  emergencyLineNumber: string;
-  profileImageUrl: string;
+  fullName?: string;
+  phone?: string;
+  city?: string;
+  primaryContact?: string;
+  secondaryContact?: string;
+  medicalNote?: string;
+  emergencyLineNumber?: string;
+  profileImageUrl?: string;
+  safetySettings?: Partial<SafetySettings>;
+  privacySettings?: Partial<PrivacySettings>;
 };
 
 export type UploadMediaResponse = {
@@ -195,6 +264,12 @@ export type UploadMediaResponse = {
 
 export type AddContactPayload = {
   emergencyContacts?: EmergencyContact[];
+  name: string;
+  phone: string;
+  relationship: string;
+};
+
+export type UpdateContactPayload = {
   name: string;
   phone: string;
   relationship: string;
@@ -215,6 +290,8 @@ export type ChatMessage = {
   sender: 'me' | 'them';
   text: string;
   imageUrl?: string;
+  localImageUri?: string;
+  locationUrl?: string;
   read: boolean;
   time: string;
   createdAt?: string;
@@ -233,11 +310,26 @@ export type ChatThreadsResponse = {
 export type ChatThreadResponse = {
   success: boolean;
   thread: ChatThreadDetails;
+  message?: ChatMessage;
 };
 
 export type SendChatMessagePayload = {
   text?: string;
   imageUrl?: string;
+};
+
+export type EmergencySosPayload = {
+  latitude: number;
+  longitude: number;
+};
+
+export type EmergencySosResponse = {
+  success: boolean;
+  message: string;
+  defaultMessage: string;
+  locationUrl: string;
+  notifiedCount: number;
+  skippedCount: number;
 };
 
 export async function signupUser(payload: {
@@ -255,7 +347,7 @@ export async function loginUser(payload: {
   identifier: string;
   password: string;
 }) {
-  return request<AuthOtpResponse>('/api/auth/login', {
+  return request<LoginResponse>('/api/auth/login', {
     body: payload,
   });
 }
@@ -300,6 +392,56 @@ export async function addContact(token: string, payload: AddContactPayload) {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(payload),
+    });
+  } catch {
+    throw authNetworkError();
+  }
+
+  const body = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message = body?.message || 'Request failed';
+    throw new ApiError(message, response.status);
+  }
+
+  return body as ContactsResponse;
+}
+
+export async function updateContact(token: string, contactId: string, payload: UpdateContactPayload) {
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_BASE_URL}/api/profile/contacts/${contactId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    throw authNetworkError();
+  }
+
+  const body = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message = body?.message || 'Request failed';
+    throw new ApiError(message, response.status);
+  }
+
+  return body as ContactsResponse;
+}
+
+export async function deleteContact(token: string, contactId: string) {
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_BASE_URL}/api/profile/contacts/${contactId}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
     });
   } catch {
     throw authNetworkError();
@@ -378,8 +520,33 @@ function getFileNameFromUri(uri: string) {
   return segments[segments.length - 1] || 'upload.jpg';
 }
 
-function getMimeTypeFromUri(uri: string) {
-  const extension = (uri.split('.').pop() || '').toLowerCase();
+function getMimeTypeFromUri(uri: string, fileName?: string) {
+  const source = fileName || uri;
+  const extension = (source.split('.').pop() || '').toLowerCase();
+
+  if (extension === 'mp3') {
+    return 'audio/mpeg';
+  }
+
+  if (extension === 'm4a') {
+    return 'audio/mp4';
+  }
+
+  if (extension === 'aac') {
+    return 'audio/aac';
+  }
+
+  if (extension === 'wav') {
+    return 'audio/wav';
+  }
+
+  if (extension === 'ogg') {
+    return 'audio/ogg';
+  }
+
+  if (extension === 'flac') {
+    return 'audio/flac';
+  }
 
   if (extension === 'png') {
     return 'image/png';
@@ -397,12 +564,16 @@ function getMimeTypeFromUri(uri: string) {
 }
 
 export async function uploadMedia(token: string, uri: string, folder: string) {
+  return uploadMediaFile(token, { uri, folder });
+}
+
+export async function uploadMediaFile(token: string, file: { uri: string; folder: string; name?: string; type?: string }) {
   const formData = new FormData();
-  formData.append('folder', folder);
+  formData.append('folder', file.folder);
   formData.append('file', {
-    uri,
-    name: getFileNameFromUri(uri),
-    type: getMimeTypeFromUri(uri),
+    uri: file.uri,
+    name: file.name || getFileNameFromUri(file.uri),
+    type: file.type || getMimeTypeFromUri(file.uri, file.name),
   } as never);
 
   let response: Response;
@@ -427,6 +598,10 @@ export async function uploadMedia(token: string, uri: string, folder: string) {
   }
 
   return body as UploadMediaResponse;
+}
+
+export async function sendEmergencySOS(token: string, payload: EmergencySosPayload) {
+  return authedJsonRequest<EmergencySosResponse>('/api/emergency/sos', token, 'POST', payload);
 }
 
 export async function fetchChatThreads(token: string) {

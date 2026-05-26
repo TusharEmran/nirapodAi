@@ -5,6 +5,7 @@ const chatMessageSchema = new mongoose.Schema(
         sender: { type: String, enum: ['me', 'them'], required: true },
         text: { type: String, default: '', trim: true },
         imageUrl: { type: String, default: '', trim: true },
+        locationUrl: { type: String, default: '', trim: true },
         read: { type: Boolean, default: false },
     },
     { timestamps: true },

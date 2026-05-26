@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Asset } from 'expo-asset';
+import { Audio as ExpoAudio } from 'expo-av';
 import { useEffect, useRef, useState } from 'react';
 import { Animated, AppState, BackHandler, Easing, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, Vibration, View } from 'react-native';
 import { BlurView } from 'expo-blur';
@@ -9,6 +11,7 @@ import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { Alert } from 'react-native';
 
 import { addContact, fetchContacts, type EmergencyContact } from '@/lib/auth-api';
+import { loadHomeNotifications, saveHomeNotifications, type HomeNotification, type HomeNotificationKind } from '@/lib/home-notification-storage';
 import { useAuth } from '@/providers/auth-provider';
 
 const quickActions = [
@@ -18,13 +21,14 @@ const quickActions = [
   { id: 'addContact', label: 'Add\ncontact', icon: 'account-plus', accessibilityLabel: 'Add an emergency contact' },
 ] as const;
 
-const sirenPassword = '122';
 const sirenAudioSource = require('../../assets/images/soundreality-civil-defense-siren-128262.mp3');
+const fallbackFakeCallAudioSource = require('../../assets/images/soundreality-civil-defense-siren-128262.mp3');
 const fakeCallerName = 'Emergency line';
 
 export default function HomeScreen() {
   const router = useRouter();
   const { token, user } = useAuth();
+  const sirenPassword = user?.safetySettings?.sirenPassword?.trim() || '122';
   const [showEmergencyOverlay, setShowEmergencyOverlay] = useState(false);
   const [showSirenOverlay, setShowSirenOverlay] = useState(false);
   const [showAddContactModal, setShowAddContactModal] = useState(false);
@@ -42,12 +46,66 @@ export default function HomeScreen() {
   const [contactPhone, setContactPhone] = useState('');
   const [contactRelationship, setContactRelationship] = useState('');
   const [contactError, setContactError] = useState('');
+  const [sosError, setSosError] = useState('');
   const [isSavingContact, setIsSavingContact] = useState(false);
-  const fakeCallerNumber = user?.emergencyLineNumber?.trim() || '+233 000 000 000';
+  const [isSendingSOS, setIsSendingSOS] = useState(false);
+  const [notificationsLoaded, setNotificationsLoaded] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState<HomeNotification[]>([]);
+  const fakeCallerNumber = user?.safetySettings?.fakeCallLineNumber?.trim() || user?.emergencyLineNumber?.trim() || '+233 000 000 000';
+  const fakeCallerAudioName = user?.safetySettings?.fakeCallAudioName?.trim() || '';
   const pulseOne = useRef(new Animated.Value(0)).current;
   const pulseTwo = useRef(new Animated.Value(0)).current;
   const callPulse = useRef(new Animated.Value(0)).current;
   const sirenPlayerRef = useRef<ReturnType<typeof createAudioPlayer> | null>(null);
+  const fakeCallSoundRef = useRef<ExpoAudio.Sound | null>(null);
+
+  const unreadNotificationCount = notifications.reduce((count, notification) => count + (notification.unread ? 1 : 0), 0);
+
+  const addNotification = (title: string, message: string, kind: HomeNotificationKind = 'info') => {
+    setNotifications((currentNotifications) => {
+      const nextNotification: HomeNotification = {
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        title,
+        message,
+        createdAt: new Date().toISOString(),
+        unread: true,
+        kind,
+      };
+
+      return [nextNotification, ...currentNotifications].slice(0, 20);
+    });
+  };
+
+  const openNotifications = () => {
+    setNotifications((currentNotifications) => currentNotifications.map((notification) => ({ ...notification, unread: false })));
+    setShowNotifications(true);
+  };
+
+  const closeNotifications = () => {
+    setShowNotifications(false);
+  };
+
+  const clearNotifications = () => {
+    setNotifications([]);
+  };
+
+  const describeNotificationTime = (createdAt: string) => {
+    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(createdAt).getTime()) / 1000));
+
+    if (elapsedSeconds < 60) {
+      return `${elapsedSeconds || 1}s ago`;
+    }
+
+    const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+
+    if (elapsedMinutes < 60) {
+      return `${elapsedMinutes}m ago`;
+    }
+
+    const elapsedHours = Math.floor(elapsedMinutes / 60);
+    return `${elapsedHours}h ago`;
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -95,6 +153,38 @@ export default function HomeScreen() {
   }, [user]);
 
   useEffect(() => {
+    let mounted = true;
+
+    const loadNotifications = async () => {
+      try {
+        const storedNotifications = await loadHomeNotifications();
+
+        if (mounted) {
+          setNotifications(storedNotifications);
+        }
+      } finally {
+        if (mounted) {
+          setNotificationsLoaded(true);
+        }
+      }
+    };
+
+    void loadNotifications();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!notificationsLoaded) {
+      return;
+    }
+
+    void saveHomeNotifications(notifications);
+  }, [notifications, notificationsLoaded]);
+
+  useEffect(() => {
     if (!token) {
       return;
     }
@@ -126,6 +216,8 @@ export default function HomeScreen() {
     return () => {
       sirenPlayerRef.current?.remove();
       sirenPlayerRef.current = null;
+      fakeCallSoundRef.current?.unloadAsync().catch(() => undefined);
+      fakeCallSoundRef.current = null;
     };
   }, []);
 
@@ -260,6 +352,7 @@ export default function HomeScreen() {
         showSeekForward: false,
       });
       player.play();
+      addNotification('Siren activated', 'The emergency siren is now playing.', 'warning');
     } catch (error) {
       setSirenPasswordError(error instanceof Error ? error.message : 'Unable to start the siren sound right now.');
     }
@@ -287,6 +380,7 @@ export default function HomeScreen() {
       setSirenStartedAt(null);
       setSirenElapsedSeconds(0);
       setShowSirenOverlay(false);
+      addNotification('Siren stopped', 'The emergency siren has been turned off.', 'success');
     }
   };
 
@@ -295,9 +389,77 @@ export default function HomeScreen() {
     setShowAddContactModal(true);
   };
 
+  const stopFakeCallAudio = async () => {
+    if (!fakeCallSoundRef.current) {
+      return;
+    }
+
+    try {
+      await fakeCallSoundRef.current.stopAsync();
+      await fakeCallSoundRef.current.unloadAsync();
+    } catch {
+      // Ignore cleanup errors.
+    } finally {
+      fakeCallSoundRef.current = null;
+    }
+  };
+
+  const playSoundSource = async (source: Parameters<typeof ExpoAudio.Sound.createAsync>[0]) => {
+    await stopFakeCallAudio();
+
+    await ExpoAudio.setAudioModeAsync({
+      playsInSilentModeIOS: true,
+      shouldDuckAndroid: true,
+    });
+
+    const { sound } = await ExpoAudio.Sound.createAsync(
+      source,
+      {
+        shouldPlay: false,
+        isLooping: true,
+        volume: 1,
+      },
+    );
+
+    await sound.playAsync();
+
+    fakeCallSoundRef.current = sound;
+  };
+
+  const resolveUploadedRingtoneSource = async (ringtoneUrl: string) => {
+    try {
+      const asset = Asset.fromURI(ringtoneUrl);
+      await asset.downloadAsync();
+
+      if (asset.localUri) {
+        return { uri: asset.localUri };
+      }
+    } catch (error) {
+      console.warn('Unable to cache the uploaded ringtone locally', error);
+    }
+
+    return { uri: ringtoneUrl };
+  };
+
+  const playFakeCallAudio = async () => {
+    const ringtoneUrl = user?.safetySettings?.fakeCallAudioUrl?.trim();
+
+    if (ringtoneUrl) {
+      try {
+        const ringtoneSource = await resolveUploadedRingtoneSource(ringtoneUrl);
+        await playSoundSource(ringtoneSource);
+        return;
+      } catch (error) {
+        console.warn('Custom ringtone failed, falling back to bundled audio', error);
+      }
+    }
+
+    await playSoundSource(fallbackFakeCallAudioSource);
+  };
+
   const openContactChat = (contact: EmergencyContact) => {
     if (!contact.isAppUser) {
-      Alert.alert('Not on the app', `${contact.name} is not a Her Shield user yet.`);
+      Alert.alert('Not on the app', `${contact.name} is not a Sentinel AI user yet.`);
       return;
     }
 
@@ -309,19 +471,84 @@ export default function HomeScreen() {
     setIsCallAnswered(false);
     setCallStartedAt(null);
     setCallElapsedSeconds(0);
+    addNotification('Fake call started', `Incoming call from ${fakeCallerName}.`, 'info');
+    void playFakeCallAudio().catch((error) => {
+      console.error('Unable to play fake call audio', error);
+    });
+  };
+
+  const resolveLiveLocation = async () => {
+    if (currentLocation) {
+      return currentLocation;
+    }
+
+    const permissions = await Location.getForegroundPermissionsAsync();
+    const nextPermissions = permissions.status === 'granted'
+      ? permissions
+      : await Location.requestForegroundPermissionsAsync();
+
+    if (nextPermissions.status !== 'granted') {
+      return null;
+    }
+
+    const position = await Location.getCurrentPositionAsync({});
+
+    return {
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+    };
+  };
+
+  const handleSendSOS = async () => {
+    try {
+      setIsSendingSOS(true);
+      setSosError('');
+
+      const liveLocation = await resolveLiveLocation();
+
+      if (!liveLocation) {
+        setSosError('Location permission is required to share your live location.');
+        return;
+      }
+
+      addNotification(
+        'SOS countdown started',
+        `Your emergency alert will be sent in ${user?.safetySettings?.sosCountdownSeconds ?? 10}s.`,
+        'warning',
+      );
+
+      setShowEmergencyOverlay(false);
+      router.push({
+        pathname: '/emergency',
+        params: {
+          latitude: String(liveLocation.latitude),
+          longitude: String(liveLocation.longitude),
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to start the SOS countdown right now.';
+      setSosError(message);
+      Alert.alert('SOS failed', message);
+    } finally {
+      setIsSendingSOS(false);
+    }
   };
 
   const answerFakeCall = () => {
     setIsCallAnswered(true);
     setCallStartedAt(Date.now());
+    addNotification('Fake call answered', 'The emergency call is now connected.', 'success');
+    void stopFakeCallAudio();
   };
 
   const endFakeCall = () => {
     Vibration.cancel();
+    void stopFakeCallAudio();
     setShowIncomingCall(false);
     setIsCallAnswered(false);
     setCallStartedAt(null);
     setCallElapsedSeconds(0);
+    addNotification('Fake call ended', 'The fake incoming call was dismissed.', 'info');
   };
 
   const handleAddContact = async () => {
@@ -353,6 +580,7 @@ export default function HomeScreen() {
       setContactPhone('');
       setContactRelationship('');
       setShowAddContactModal(false);
+      addNotification('Contact saved', `${trimmedName} was added to your emergency contacts.`, 'success');
     } catch (error) {
       setContactError(error instanceof Error ? error.message : 'Unable to add contact right now.');
     } finally {
@@ -427,15 +655,17 @@ export default function HomeScreen() {
         <View style={styles.hero}>
           <View style={styles.headerRow}>
             <View style={styles.logoRow}>
-              <View style={styles.logoMark}>
-                <MaterialCommunityIcons name="shield" size={28} color="#C84D61" />
-              </View>
-              <Text style={styles.logoText}>Her{`\n`}Shield</Text>
+              <Text style={styles.logoText}>Sentinel{`\n`}AI</Text>
             </View>
 
-            <View style={styles.bellButton}>
+            <Pressable
+              style={styles.bellButton}
+              onPress={openNotifications}
+              accessibilityRole="button"
+              accessibilityLabel="Open notifications">
               <MaterialCommunityIcons name="bell" size={22} color="#B84A5A" />
-            </View>
+              {unreadNotificationCount > 0 ? <View style={styles.bellBadge} /> : null}
+            </Pressable>
           </View>
 
           <View style={styles.sosWrap}>
@@ -634,7 +864,8 @@ export default function HomeScreen() {
 
             <Text style={styles.callName}>{fakeCallerName}</Text>
             <Text style={styles.callNumber}>{fakeCallerNumber}</Text>
-            <Text style={styles.callLabel}>{isCallAnswered ? `Connected for ${String(Math.floor(callElapsedSeconds / 60)).padStart(2, '0')}:${String(callElapsedSeconds % 60).padStart(2, '0')}` : 'Incoming call from Her Shield emergency line'}</Text>
+            {fakeCallerAudioName ? <Text style={styles.callAudioName}>{fakeCallerAudioName}</Text> : null}
+            <Text style={styles.callLabel}>{isCallAnswered ? `Connected for ${String(Math.floor(callElapsedSeconds / 60)).padStart(2, '0')}:${String(callElapsedSeconds % 60).padStart(2, '0')}` : 'Incoming call from Sentinel AI emergency line'}</Text>
 
             <View style={styles.callActionsRow}>
               <Pressable
@@ -666,6 +897,68 @@ export default function HomeScreen() {
                 </Pressable>
               )}
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showNotifications}
+        transparent={true}
+        animationType="fade"
+        statusBarTranslucent={true}
+        onRequestClose={closeNotifications}>
+        <View style={styles.notificationOverlayContainer}>
+          <BlurView
+            intensity={28}
+            tint="dark"
+            experimentalBlurMethod="dimezisBlurView"
+            style={StyleSheet.absoluteFill}
+          />
+          <View style={styles.notificationOverlayScrim} />
+
+          <View style={styles.notificationCard}>
+            <View style={styles.notificationHeaderRow}>
+              <View style={styles.notificationHeaderLeft}>
+                <View style={styles.notificationHeaderIcon}>
+                  <MaterialCommunityIcons name="bell-outline" size={18} color="#C84D61" />
+                </View>
+                <View>
+                  <Text style={styles.notificationTitle}>Notifications</Text>
+                  <Text style={styles.notificationSubtitle}>{notifications.length} updates</Text>
+                </View>
+              </View>
+
+              <Pressable onPress={clearNotifications} accessibilityRole="button">
+                <Text style={styles.notificationClearText}>Clear all</Text>
+              </Pressable>
+            </View>
+
+            {notifications.length ? (
+              <ScrollView style={styles.notificationList} contentContainerStyle={styles.notificationListContent} showsVerticalScrollIndicator={false}>
+                {notifications.map((notification) => (
+                  <View key={notification.id} style={styles.notificationItem}>
+                    <View style={[styles.notificationDot, notification.kind === 'success' && styles.notificationDotSuccess, notification.kind === 'warning' && styles.notificationDotWarning, notification.kind === 'error' && styles.notificationDotError]} />
+                    <View style={styles.notificationItemBody}>
+                      <View style={styles.notificationItemTopRow}>
+                        <Text style={styles.notificationItemTitle}>{notification.title}</Text>
+                        {notification.unread ? <View style={styles.notificationUnreadPill} /> : null}
+                      </View>
+                      <Text style={styles.notificationItemMessage}>{notification.message}</Text>
+                      <Text style={styles.notificationItemTime}>{describeNotificationTime(notification.createdAt)}</Text>
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            ) : (
+              <View style={styles.notificationEmptyState}>
+                <MaterialCommunityIcons name="bell-off-outline" size={22} color="#C84D61" />
+                <Text style={styles.notificationEmptyText}>No notifications yet.</Text>
+              </View>
+            )}
+
+            <Pressable style={styles.notificationDoneButton} onPress={closeNotifications} accessibilityRole="button">
+              <Text style={styles.notificationDoneButtonText}>Done</Text>
+            </Pressable>
           </View>
         </View>
       </Modal>
@@ -825,18 +1118,18 @@ export default function HomeScreen() {
             </View>
 
             <Text style={styles.modalDescription}>
-              After 10s your location will be shared with your contacts and authority will contact you soon.
+              Start a countdown before sending the SOS alert with your live location.
             </Text>
 
             <Pressable
               style={styles.modalButton}
-              onPress={() => {
-                setShowEmergencyOverlay(false);
-                router.push('/emergency');
-              }}
+              onPress={() => void handleSendSOS()}
+              disabled={isSendingSOS}
               accessibilityRole="button">
-              <Text style={styles.modalButtonText}>Continue</Text>
+              <Text style={styles.modalButtonText}>{isSendingSOS ? 'Starting...' : 'Start countdown'}</Text>
             </Pressable>
+
+            {sosError ? <Text style={styles.modalErrorText}>{sosError}</Text> : null}
           </View>
         </View>
       ) : null}
@@ -1042,6 +1335,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
   },
+  modalErrorText: {
+    marginTop: 14,
+    color: '#B84A5A',
+    textAlign: 'center',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
   hero: {
     backgroundColor: '#FFFFFF',
     paddingTop: 24,
@@ -1087,6 +1388,165 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 6 },
     elevation: 3,
+  },
+  bellBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: '#B84A5A',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  notificationOverlayContainer: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  notificationOverlayScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(34, 12, 17, 0.42)',
+  },
+  notificationCard: {
+    width: '100%',
+    maxWidth: 360,
+    maxHeight: '78%',
+    borderRadius: 28,
+    backgroundColor: 'rgba(255,255,255,0.98)',
+    padding: 18,
+    gap: 16,
+    shadowColor: '#7A2434',
+    shadowOpacity: 0.2,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 12,
+  },
+  notificationHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  notificationHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  notificationHeaderIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F7EDEF',
+  },
+  notificationTitle: {
+    color: '#1D1D1F',
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  notificationSubtitle: {
+    color: '#8F6A73',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 1,
+  },
+  notificationClearText: {
+    color: '#C84D61',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  notificationList: {
+    maxHeight: 360,
+  },
+  notificationListContent: {
+    gap: 10,
+    paddingBottom: 2,
+  },
+  notificationItem: {
+    flexDirection: 'row',
+    gap: 12,
+    borderRadius: 18,
+    backgroundColor: '#FFF8F9',
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(200,77,97,0.08)',
+  },
+  notificationDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 999,
+    backgroundColor: '#C84D61',
+    marginTop: 4,
+  },
+  notificationDotSuccess: {
+    backgroundColor: '#2E9E68',
+  },
+  notificationDotWarning: {
+    backgroundColor: '#D48A1A',
+  },
+  notificationDotError: {
+    backgroundColor: '#C84D61',
+  },
+  notificationItemBody: {
+    flex: 1,
+    gap: 4,
+  },
+  notificationItemTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  notificationItemTitle: {
+    flex: 1,
+    color: '#1D1D1F',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  notificationUnreadPill: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: '#C84D61',
+  },
+  notificationItemMessage: {
+    color: '#735E64',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  notificationItemTime: {
+    color: '#A08A90',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  notificationEmptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 26,
+  },
+  notificationEmptyText: {
+    color: '#7D6A70',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  notificationDoneButton: {
+    minHeight: 52,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#C84D61',
+  },
+  notificationDoneButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
   },
   sosWrap: {
     alignItems: 'center',
@@ -1357,6 +1817,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     letterSpacing: 0.3,
+  },
+  callAudioName: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+    textAlign: 'center',
   },
   callLabel: {
     color: 'rgba(255,255,255,0.82)',

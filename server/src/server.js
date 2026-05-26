@@ -3,6 +3,7 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const { connectDB } = require('./config/db');
 const authRoutes = require('./routes/authRoutes');
+const emergencyRoutes = require('./routes/emergencyRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 const mediaRoutes = require('./routes/mediaRoutes');
 const profileRoutes = require('./routes/profileRoutes');
@@ -11,7 +12,7 @@ dotenv.config();
 
 const app = express();
 const port = Number(process.env.PORT || 8000);
-const allowedOrigins = (process.env.CLIENT_ORIGINS || '*')
+const allowedOrigins = (process.env.CLIENT_ORIGINS || process.env.CLIENT_ORIGIN || '*')
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
@@ -36,6 +37,7 @@ app.get('/health', (_req, res) => {
 });
 
 app.use('/api/auth', authRoutes);
+app.use('/api/emergency', emergencyRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/media', mediaRoutes);
 app.use('/api/profile', profileRoutes);

@@ -4,11 +4,11 @@ import os
 import shutil
 from utils import predict_distress, predict_yamnet
 
-app = FastAPI(title="NirapodAI ML Backend")
+app = FastAPI(title="Sentinel AI ML Backend")
 
 @app.get("/")
 def read_root():
-    return {"status": "ok", "message": "NirapodAI ML Backend is running."}
+    return {"status": "ok", "message": "Sentinel AI ML Backend is running."}
 
 @app.post("/analyze")
 async def analyze_audio(file: UploadFile = File(...)):

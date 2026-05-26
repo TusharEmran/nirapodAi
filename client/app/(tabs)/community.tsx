@@ -8,8 +8,6 @@ import { useAuth } from '@/providers/auth-provider';
 
 const quickActions = [
     { id: '1', label: 'Share location', icon: 'map-marker-radius-outline' },
-    { id: '2', label: 'Call contact', icon: 'phone-outline' },
-    { id: '3', label: 'Send SOS', icon: 'alert-octagon-outline' },
 ] as const;
 
 export default function CommunityScreen() {
@@ -54,7 +52,11 @@ export default function CommunityScreen() {
 
     const visibleContacts = useMemo(() => {
         const query = searchQuery.trim().toLowerCase();
-        const baseContacts = contacts.length > 0 ? contacts : [];
+        const baseContacts = contacts.length > 0 ? [...contacts].sort((a, b) => {
+            const timeA = new Date(a.updatedAt || 0).getTime();
+            const timeB = new Date(b.updatedAt || 0).getTime();
+            return timeB - timeA;
+        }) : [];
 
         if (!query) {
             return baseContacts;

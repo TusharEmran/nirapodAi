@@ -1,7 +1,11 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import * as Location from 'expo-location';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+
+import { sendEmergencySOS } from '@/lib/auth-api';
+import { useAuth } from '@/providers/auth-provider';
 
 // Contact positions are now relative to ring center (145, 145)
 // so they actually orbit the center circle correctly
@@ -17,23 +21,37 @@ const RING = 145; // half of contactRing width (290)
 
 export default function EmergencyScreen() {
     const router = useRouter();
-    const [countdown, setCountdown] = useState(9);
+    const { token, user } = useAuth();
+    const params = useLocalSearchParams<{ latitude?: string; longitude?: string }>();
+    const initialCountdown = user?.safetySettings?.sosCountdownSeconds ?? 10;
+    const [countdown, setCountdown] = useState(initialCountdown);
+    const [isSending, setIsSending] = useState(false);
+    const [sendError, setSendError] = useState('');
+    const hasSentSosRef = useRef(false);
     const infoRowAnimations = useRef([
         new Animated.Value(0),
         new Animated.Value(0),
         new Animated.Value(0),
     ]).current;
 
+    const latitude = Number(params.latitude);
+    const longitude = Number(params.longitude);
+
     useEffect(() => {
-        if (countdown <= 1) {
+        if (hasSentSosRef.current) {
             return;
         }
 
+        const nextCountdown = user?.safetySettings?.sosCountdownSeconds ?? 10;
+        setCountdown(nextCountdown);
+    }, [user]);
+
+    useEffect(() => {
         const timer = setInterval(() => {
             setCountdown((currentValue) => {
-                if (currentValue <= 1) {
+                if (currentValue <= 0) {
                     clearInterval(timer);
-                    return 1;
+                    return 0;
                 }
 
                 return currentValue - 1;
@@ -41,7 +59,95 @@ export default function EmergencyScreen() {
         }, 1000);
 
         return () => clearInterval(timer);
-    }, [countdown]);
+    }, []);
+
+    useEffect(() => {
+        if (countdown !== 0 || hasSentSosRef.current) {
+            return;
+        }
+
+        hasSentSosRef.current = true;
+
+        let cancelled = false;
+
+        const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number) => {
+            let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+            try {
+                return await Promise.race([
+                    promise,
+                    new Promise<T>((_, reject) => {
+                        timeoutHandle = setTimeout(() => reject(new Error('SOS request timed out. Please try again.')), timeoutMs);
+                    }),
+                ]);
+            } finally {
+                if (timeoutHandle) {
+                    clearTimeout(timeoutHandle);
+                }
+            }
+        };
+
+        const triggerSOS = async () => {
+            try {
+                setIsSending(true);
+                setSendError('');
+
+                let liveLatitude = latitude;
+                let liveLongitude = longitude;
+
+                if (!Number.isFinite(liveLatitude) || !Number.isFinite(liveLongitude)) {
+                    const permissions = await Location.getForegroundPermissionsAsync();
+                    const nextPermissions = permissions.status === 'granted'
+                        ? permissions
+                        : await Location.requestForegroundPermissionsAsync();
+
+                    if (nextPermissions.status !== 'granted') {
+                        throw new Error('Location permission is required to send the SOS alert.');
+                    }
+
+                    const position = await Location.getCurrentPositionAsync({});
+                    liveLatitude = position.coords.latitude;
+                    liveLongitude = position.coords.longitude;
+                }
+
+                if (!token) {
+                    throw new Error('Sign in again to send SOS alerts.');
+                }
+
+                await withTimeout(
+                    sendEmergencySOS(token, {
+                        latitude: liveLatitude,
+                        longitude: liveLongitude,
+                    }),
+                    15000,
+                );
+
+                if (cancelled) {
+                    return;
+                }
+
+                router.replace('/(tabs)');
+            } catch (error) {
+                if (cancelled) {
+                    return;
+                }
+
+                const message = error instanceof Error ? error.message : 'Unable to send SOS right now.';
+                setSendError(message);
+                Alert.alert('SOS failed', message);
+            } finally {
+                if (!cancelled) {
+                    setIsSending(false);
+                }
+            }
+        };
+
+        void triggerSOS();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [countdown, latitude, longitude, router, token]);
 
     useEffect(() => {
         Animated.stagger(
@@ -72,7 +178,7 @@ export default function EmergencyScreen() {
         <View style={styles.screen}>
             <View style={styles.topBar}>
                 <Pressable
-                    onPress={() => router.back()}
+                    onPress={() => router.replace('/(tabs)')}
                     style={styles.backButton}
                     accessibilityRole="button"
                     accessibilityLabel="Go back"
@@ -141,12 +247,14 @@ export default function EmergencyScreen() {
             </View>
 
             <Pressable style={styles.callButton} accessibilityRole="button">
-                <Text style={styles.callButtonText}>Call 122</Text>
+                <Text style={styles.callButtonText}>{isSending ? 'Sending SOS...' : 'Call 122'}</Text>
             </Pressable>
 
-            <Pressable style={styles.cancelButton} accessibilityRole="button">
+            <Pressable style={styles.cancelButton} accessibilityRole="button" onPress={() => router.replace('/(tabs)')}>
                 <Text style={styles.cancelButtonText}>Cancel</Text>
             </Pressable>
+
+            {sendError ? <Text style={styles.errorText}>{sendError}</Text> : null}
         </View>
     );
 }
@@ -274,5 +382,13 @@ const styles = StyleSheet.create({
         color: '#FFFFFF',
         fontSize: 16,
         fontWeight: '700',
+    },
+    errorText: {
+        marginTop: 14,
+        color: '#FFFFFF',
+        fontSize: 13,
+        fontWeight: '700',
+        textAlign: 'center',
+        opacity: 0.92,
     },
 });

@@ -11,6 +11,19 @@ function buildAvatarColor(name) {
     return colors[value % colors.length];
 }
 
+function serializeThread(thread) {
+    return {
+        id: thread.contactId,
+        name: thread.contactName,
+        subtitle: thread.subtitle,
+        accent: thread.accent,
+        unread: thread.unread,
+        message: thread.lastMessage || '',
+        time: thread.lastMessageAt ? formatClockLabel(thread.lastMessageAt) : '',
+        messages: thread.messages.map(serializeMessage),
+    };
+}
+
 function summarizeThread(thread) {
     return {
         id: thread.contactId,
@@ -39,6 +52,7 @@ function serializeMessage(message) {
         sender: message.sender,
         text: message.text || '',
         imageUrl: message.imageUrl || '',
+        locationUrl: message.locationUrl || '',
         read: message.read,
         time: formatClockLabel(message.createdAt || new Date()),
         createdAt: message.createdAt,
@@ -113,63 +127,117 @@ async function getAppUserContactThreads(owner) {
         threads.push(thread);
     }
 
-    if (validContactIds.length === 0) {
-        await ChatThread.deleteMany({ ownerId: owner._id });
-        return [];
-    }
-
-    await ChatThread.deleteMany({
+    const incomingThreads = await ChatThread.find({
         ownerId: owner._id,
         contactId: { $nin: validContactIds },
     });
 
-    return threads;
+    return [...threads, ...incomingThreads];
 }
 
-async function getContactThreadContext(req) {
-    const owner = await User.findById(req.user.sub).select('emergencyContacts');
+function findContactForUser(owner, appUser) {
+    return (owner.emergencyContacts || []).find((contact) => normalizePhone(contact.phone) === normalizePhone(appUser.phone));
+}
 
-    if (!owner) {
-        return { error: { status: 404, message: 'User not found' } };
+async function findAppUserForContact(owner, contactId) {
+    const contact = (owner.emergencyContacts || []).id(contactId);
+
+    if (contact) {
+        const appUser = await User.findOne({
+            phone: normalizePhone(contact.phone),
+            _id: { $ne: owner._id },
+        }).select('_id fullName phone emergencyContacts');
+
+        if (!appUser) {
+            return { error: { status: 404, message: 'This contact is not on the app yet' } };
+        }
+
+        return { contact, appUser, contactId: String(contact._id) };
     }
 
-    const contact = (owner.emergencyContacts || []).id(req.params.contactId);
+    const appUser = await User.findById(contactId).select('_id fullName phone emergencyContacts');
 
-    if (!contact) {
+    if (!appUser || String(appUser._id) === String(owner._id)) {
         return { error: { status: 404, message: 'Contact not found' } };
     }
 
-    const appUser = await User.findOne({
-        phone: normalizePhone(contact.phone),
-        _id: { $ne: owner._id },
-    }).select('_id fullName phone');
+    return {
+        contact: null,
+        appUser,
+        contactId: String(appUser._id),
+    };
+}
 
-    if (!appUser) {
-        return { error: { status: 404, message: 'This contact is not on the app yet' } };
-    }
-
-    let thread = await ChatThread.findOne({ ownerId: owner._id, contactId: String(contact._id) });
+async function findOrCreateThread({ owner, contact, appUser, contactId, unread = false }) {
+    let thread = await ChatThread.findOne({ ownerId: owner._id, contactId });
+    const contactName = contact?.name || appUser.fullName;
+    const subtitle = contact?.relationship || appUser.phone || 'App user';
 
     if (!thread) {
         thread = await ChatThread.create({
             ownerId: owner._id,
-            contactId: String(contact._id),
-            contactName: contact.name,
-            subtitle: contact.relationship || 'App user',
-            accent: buildAvatarColor(contact.name),
-            unread: false,
+            contactId,
+            contactName,
+            subtitle,
+            accent: buildAvatarColor(contactName),
+            unread,
             lastMessage: '',
             lastMessageAt: null,
             messages: [],
         });
     } else {
-        thread.contactName = contact.name;
-        thread.subtitle = contact.relationship || 'App user';
-        thread.accent = buildAvatarColor(contact.name);
+        thread.contactName = contactName;
+        thread.subtitle = subtitle;
+        thread.accent = buildAvatarColor(contactName);
         await thread.save();
     }
 
-    return { owner, contact, thread };
+    return thread;
+}
+
+async function getContactThreadContext(req) {
+    const owner = await User.findById(req.user.sub).select('fullName phone emergencyContacts');
+
+    if (!owner) {
+        return { error: { status: 404, message: 'User not found' } };
+    }
+
+    const contactContext = await findAppUserForContact(owner, req.params.contactId);
+
+    if (contactContext.error) {
+        return { error: contactContext.error };
+    }
+
+    const { appUser, contact, contactId } = contactContext;
+    const thread = await findOrCreateThread({ owner, contact, appUser, contactId });
+
+    return { owner, appUser, contact, thread };
+}
+
+async function mirrorMessageToRecipient({ sender, recipient, text, imageUrl }) {
+    const reciprocalContact = findContactForUser(recipient, sender);
+    const recipientContactId = reciprocalContact ? String(reciprocalContact._id) : String(sender._id);
+    const recipientThread = await findOrCreateThread({
+        owner: recipient,
+        contact: reciprocalContact,
+        appUser: sender,
+        contactId: recipientContactId,
+        unread: true,
+    });
+
+    const messageText = text || (imageUrl ? 'Shared a photo.' : '');
+
+    recipientThread.messages.push({
+        sender: 'them',
+        text: messageText,
+        imageUrl,
+        read: false,
+    });
+    recipientThread.lastMessage = imageUrl ? (text || 'Photo') : text;
+    recipientThread.lastMessageAt = new Date();
+    recipientThread.unread = true;
+
+    await recipientThread.save();
 }
 
 async function getThreads(req, res, next) {
@@ -212,16 +280,7 @@ async function getThread(req, res, next) {
 
         return res.status(200).json({
             success: true,
-            thread: {
-                id: thread.contactId,
-                name: thread.contactName,
-                subtitle: thread.subtitle,
-                accent: thread.accent,
-                unread: thread.unread,
-                message: thread.lastMessage || '',
-                time: thread.lastMessageAt ? formatClockLabel(thread.lastMessageAt) : '',
-                messages: thread.messages.map(serializeMessage),
-            },
+            thread: serializeThread(thread),
         });
     } catch (error) {
         return next(error);
@@ -243,13 +302,14 @@ async function postMessage(req, res, next) {
             return res.status(context.error.status).json({ success: false, message: context.error.message });
         }
 
-        const { thread } = context;
+        const { owner, appUser, thread } = context;
         const messageText = text || (imageUrl ? 'Shared a photo.' : '');
 
         thread.messages.push({
             sender: 'me',
             text: messageText,
             imageUrl,
+            locationUrl: '',
             read: true,
         });
         thread.lastMessage = imageUrl ? (text || 'Photo') : text;
@@ -257,19 +317,11 @@ async function postMessage(req, res, next) {
         thread.unread = false;
 
         await thread.save();
+        await mirrorMessageToRecipient({ sender: owner, recipient: appUser, text, imageUrl });
 
         return res.status(201).json({
             success: true,
-            thread: {
-                id: thread.contactId,
-                name: thread.contactName,
-                subtitle: thread.subtitle,
-                accent: thread.accent,
-                unread: thread.unread,
-                message: thread.lastMessage || '',
-                time: thread.lastMessageAt ? formatClockLabel(thread.lastMessageAt) : '',
-                messages: thread.messages.map(serializeMessage),
-            },
+            thread: serializeThread(thread),
             message: serializeMessage(thread.messages[thread.messages.length - 1]),
         });
     } catch (error) {
