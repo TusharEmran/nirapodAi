@@ -63,9 +63,11 @@ export default function SnapScreen() {
 
         try {
             const captured = await cameraRef.current.takePictureAsync({ quality: 0.85 });
-            setPhotoUri(captured.uri);
-            setLastSentRecipient(null);
-            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            if (captured?.uri) {
+                setPhotoUri(captured.uri);
+                setLastSentRecipient(null);
+                await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            }
         } finally {
             setIsCapturing(false);
         }
@@ -135,12 +137,12 @@ export default function SnapScreen() {
             <View style={styles.permissionScreen}>
                 <View style={styles.permissionCard}>
                     <View style={styles.permissionIcon}>
-                        <MaterialCommunityIcons name="camera" size={24} color="#C84D61" />
+                        <MaterialCommunityIcons name="camera" size={32} color="#FAFAFA" />
                     </View>
-                    <Text style={styles.title}>Camera access needed</Text>
-                    <Text style={styles.subtitle}>Grant camera permission to take a snap and send it directly to your contacts.</Text>
-                    <Pressable style={styles.primaryButton} onPress={() => void requestPermission()} accessibilityRole="button">
-                        <Text style={styles.primaryButtonText}>Allow camera</Text>
+                    <Text style={styles.permissionTitle}>Camera access needed</Text>
+                    <Text style={styles.permissionSubtitle}>Grant camera permission to capture stealth evidence and send it securely.</Text>
+                    <Pressable style={styles.permissionButton} onPress={() => void requestPermission()} accessibilityRole="button">
+                        <Text style={styles.permissionButtonText}>Allow camera</Text>
                     </Pressable>
                 </View>
             </View>
@@ -149,128 +151,132 @@ export default function SnapScreen() {
 
     return (
         <View style={styles.screen}>
+            {/* Dark Mode Top Nav */}
             <View style={styles.topBar}>
-                <Pressable style={styles.iconButton} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
-                    <MaterialCommunityIcons name="chevron-left" size={28} color="#C84D61" />
+                <Pressable style={styles.iconButton} onPress={() => router.back()} accessibilityRole="button">
+                    <MaterialCommunityIcons name="chevron-left" size={28} color="#FAFAFA" />
                 </Pressable>
-
-                <View style={styles.topBarTitleWrap}>
-                    <Text style={styles.kicker}>Sentinel AI</Text>
-                    <Text style={styles.headerTitle}>Snap and send</Text>
+                <View style={styles.topBarCenter}>
+                    <Text style={styles.kicker}>Stealth Mode</Text>
+                    <Text style={styles.headerTitle}>Evidence Capture</Text>
                 </View>
-
-                <View style={styles.iconButton}>
-                    <MaterialCommunityIcons name="image-multiple-outline" size={20} color="#C84D61" />
-                </View>
+                <View style={[styles.iconButton, { backgroundColor: 'transparent', borderWidth: 0 }]} />
             </View>
 
             <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-                <View style={styles.cameraFrame}>
-                    {photoUri ? (
-                        <Image source={{ uri: photoUri }} style={styles.preview} contentFit="cover" />
-                    ) : (
-                        <CameraView
-                            ref={cameraRef}
-                            style={styles.preview}
-                            facing={facing}
-                            mode="picture"
-                            onCameraReady={() => setCameraReady(true)}
-                        />
-                    )}
+                
+                {/* Advanced Camera Viewfinder */}
+                <View style={styles.cameraWrapper}>
+                    <View style={styles.cameraFrame}>
+                        {photoUri ? (
+                            <Image source={{ uri: photoUri }} style={styles.preview} contentFit="cover" />
+                        ) : (
+                            <CameraView
+                                ref={cameraRef}
+                                style={styles.preview}
+                                facing={facing}
+                                mode="picture"
+                                onCameraReady={() => setCameraReady(true)}
+                            />
+                        )}
 
-                    <View style={styles.cameraOverlay} pointerEvents="none">
-                        <View style={styles.cornerTopLeft} />
-                        <View style={styles.cornerTopRight} />
-                        <View style={styles.cornerBottomLeft} />
-                        <View style={styles.cornerBottomRight} />
-                    </View>
-
-                    <View style={styles.cameraBadge}>
-                        <MaterialCommunityIcons name="radiobox-marked" size={12} color="#FFFFFF" />
-                        <Text style={styles.cameraBadgeText}>Live capture</Text>
-                    </View>
-                </View>
-
-                <View style={styles.controlsRow}>
-                    {photoUri ? (
-                        <>
-                            <Pressable style={styles.secondaryButton} onPress={retakeSnap} accessibilityRole="button">
-                                <MaterialCommunityIcons name="camera-retake" size={18} color="#C84D61" />
-                                <Text style={styles.secondaryButtonText}>Retake</Text>
-                            </Pressable>
-
-                            <Pressable
-                                style={[styles.captureButton, isCapturing && styles.captureButtonDisabled]}
-                                onPress={() => void takeSnap()}
-                                disabled={isCapturing}
-                                accessibilityRole="button"
-                            >
-                                {isCapturing ? <ActivityIndicator color="#FFFFFF" /> : <MaterialCommunityIcons name="camera" size={22} color="#FFFFFF" />}
-                            </Pressable>
-                        </>
-                    ) : (
-                        <Pressable
-                            style={[styles.captureButton, isCapturing && styles.captureButtonDisabled]}
-                            onPress={() => void takeSnap()}
-                            disabled={isCapturing}
-                            accessibilityRole="button"
-                        >
-                            {isCapturing ? <ActivityIndicator color="#FFFFFF" /> : <MaterialCommunityIcons name="camera-iris" size={24} color="#FFFFFF" />}
-                        </Pressable>
-                    )}
-                </View>
-
-                {photoUri ? (
-                    <View style={styles.sendPanel}>
-                        <View style={styles.sendPanelHeader}>
-                            <Text style={styles.sectionTitle}>Send to contacts</Text>
-                            <Text style={styles.sendPanelSubtitle}>Tap a contact to send this snap directly.</Text>
+                        <View style={styles.cameraOverlay} pointerEvents="none">
+                            {/* Target brackets for stealth look */}
+                            <View style={[styles.targetBracket, styles.bracketTopLeft]} />
+                            <View style={[styles.targetBracket, styles.bracketTopRight]} />
+                            <View style={[styles.targetBracket, styles.bracketBottomLeft]} />
+                            <View style={[styles.targetBracket, styles.bracketBottomRight]} />
                         </View>
 
-                        {lastSentRecipient ? (
-                            <View style={styles.sentBanner}>
-                                <MaterialCommunityIcons name="check-circle" size={18} color="#FFFFFF" />
-                                <Text style={styles.sentBannerText}>Sent to {lastSentRecipient}</Text>
+                        <View style={styles.statusBadge}>
+                            <View style={[styles.statusDot, photoUri && { backgroundColor: '#F59E0B' }]} />
+                            <Text style={styles.statusBadgeText}>{photoUri ? 'Captured' : 'Live'}</Text>
+                        </View>
+                    </View>
+
+                    {/* Camera Controls */}
+                    <View style={styles.controlsRow}>
+                        {photoUri ? (
+                            <>
+                                <Pressable style={styles.retakeButton} onPress={retakeSnap} accessibilityRole="button">
+                                    <MaterialCommunityIcons name="refresh" size={24} color="#A1A1AA" />
+                                </Pressable>
+                                <Pressable style={styles.primaryActionButton} disabled>
+                                    <MaterialCommunityIcons name="check" size={28} color="#09090B" />
+                                </Pressable>
+                            </>
+                        ) : (
+                            <View style={styles.shutterRing}>
+                                <Pressable
+                                    style={[styles.shutterButton, isCapturing && styles.shutterButtonActive]}
+                                    onPress={() => void takeSnap()}
+                                    disabled={isCapturing}
+                                    accessibilityRole="button"
+                                >
+                                    {isCapturing && <ActivityIndicator color="#09090B" />}
+                                </Pressable>
                             </View>
-                        ) : null}
+                        )}
+                    </View>
+                </View>
 
-                        {contacts.map((recipient) => (
-                            <Pressable
-                                key={recipient.id}
-                                style={[styles.recipientCard, isSending && styles.recipientCardDisabled]}
-                                onPress={() => void sendSnap(recipient)}
-                                disabled={isSending}
-                                accessibilityRole="button"
-                            >
-                                <View style={[styles.recipientAvatar, { backgroundColor: recipient.avatar }]}>
-                                    <Text style={styles.recipientInitial}>{recipient.initials}</Text>
-                                </View>
+                {/* Secure Send Panel */}
+                {photoUri ? (
+                    <View style={styles.sendPanel}>
+                        <View style={styles.panelHeader}>
+                            <MaterialCommunityIcons name="shield-lock" size={20} color="#71717A" />
+                            <Text style={styles.panelTitle}>Secure Transmission</Text>
+                        </View>
+                        <Text style={styles.panelSubtitle}>Select an emergency contact to send this encrypted evidence instantly.</Text>
 
-                                <View style={styles.recipientInfo}>
-                                    <Text style={styles.recipientName}>{recipient.name}</Text>
-                                    <Text style={styles.recipientSubtitle}>{recipient.relationship || recipient.phone}</Text>
-                                </View>
-
-                                <View style={[styles.recipientAction, !recipient.isAppUser && styles.recipientActionDisabled]}>
-                                    <MaterialCommunityIcons name={recipient.isAppUser ? 'send' : 'account-cancel-outline'} size={16} color="#C84D61" />
-                                    <Text style={styles.recipientActionText}>{recipient.isAppUser ? (isSending ? 'Sending...' : 'Send') : 'Not on app'}</Text>
-                                </View>
-                            </Pressable>
-                        ))}
-
-                        {contacts.length > 0 && appRecipients.length === 0 ? (
-                            <View style={styles.emptyRecipients}>
-                                <MaterialCommunityIcons name="account-cancel-outline" size={18} color="#A46A74" />
-                                <Text style={styles.emptyRecipientsText}>None of your saved contacts are on Sentinel AI yet.</Text>
+                        {lastSentRecipient && (
+                            <View style={styles.successBanner}>
+                                <MaterialCommunityIcons name="check-circle" size={18} color="#FAFAFA" />
+                                <Text style={styles.successBannerText}>Sent securely to {lastSentRecipient}</Text>
                             </View>
-                        ) : null}
+                        )}
 
-                        {sendError ? <Text style={styles.sendError}>{sendError}</Text> : null}
+                        <View style={styles.contactsList}>
+                            {contacts.map((recipient) => (
+                                <Pressable
+                                    key={recipient.id}
+                                    style={[styles.contactCard, isSending && styles.contactCardDisabled]}
+                                    onPress={() => void sendSnap(recipient)}
+                                    disabled={isSending}
+                                    accessibilityRole="button"
+                                >
+                                    <View style={[styles.avatar, { backgroundColor: recipient.avatar }]}>
+                                        <Text style={styles.avatarInitial}>{recipient.initials}</Text>
+                                    </View>
+
+                                    <View style={styles.contactInfo}>
+                                        <Text style={styles.contactName}>{recipient.name}</Text>
+                                        <Text style={styles.contactSub}>{recipient.relationship || recipient.phone}</Text>
+                                    </View>
+
+                                    <View style={[styles.sendAction, !recipient.isAppUser && styles.sendActionDisabled]}>
+                                        <MaterialCommunityIcons name={recipient.isAppUser ? 'send' : 'close'} size={14} color={recipient.isAppUser ? '#FAFAFA' : '#71717A'} />
+                                        <Text style={[styles.sendActionText, !recipient.isAppUser && { color: '#71717A' }]}>
+                                            {recipient.isAppUser ? (isSending ? 'Sending...' : 'Send') : 'Not joined'}
+                                        </Text>
+                                    </View>
+                                </Pressable>
+                            ))}
+                        </View>
+
+                        {contacts.length > 0 && appRecipients.length === 0 && (
+                            <View style={styles.emptyState}>
+                                <MaterialCommunityIcons name="account-alert" size={24} color="#71717A" />
+                                <Text style={styles.emptyStateText}>None of your contacts have installed the app. They must install it to receive secure evidence.</Text>
+                            </View>
+                        )}
+
+                        {sendError ? <Text style={styles.errorText}>{sendError}</Text> : null}
                     </View>
                 ) : (
-                    <View style={styles.tipCard}>
-                        <MaterialCommunityIcons name="gesture-tap-button" size={18} color="#C84D61" />
-                        <Text style={styles.tipText}>Take a snap first, then choose who to send it to.</Text>
+                    <View style={styles.instructionBanner}>
+                        <MaterialCommunityIcons name="information" size={20} color="#71717A" />
+                        <Text style={styles.instructionText}>Capture evidence discreetly. Images are not saved to your local camera roll.</Text>
                     </View>
                 )}
             </ScrollView>
@@ -281,108 +287,115 @@ export default function SnapScreen() {
 const styles = StyleSheet.create({
     screen: {
         flex: 1,
-        backgroundColor: '#C84D61',
-        paddingTop: 42,
+        backgroundColor: '#09090B',
+        paddingTop: 48,
     },
     loadingScreen: {
         flex: 1,
-        backgroundColor: '#C84D61',
+        backgroundColor: '#09090B',
     },
     permissionScreen: {
         flex: 1,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: '#C84D61',
-        padding: 20,
+        backgroundColor: '#09090B',
+        padding: 24,
     },
     permissionCard: {
         width: '100%',
-        maxWidth: 380,
-        borderRadius: 30,
-        backgroundColor: '#FFFDFD',
-        padding: 22,
-        gap: 12,
+        maxWidth: 340,
+        borderRadius: 32,
+        backgroundColor: '#18181B',
+        borderWidth: 1,
+        borderColor: '#27272A',
+        padding: 24,
+        gap: 16,
         alignItems: 'center',
     },
     permissionIcon: {
-        width: 56,
-        height: 56,
-        borderRadius: 18,
-        backgroundColor: '#F4D7DB',
+        width: 72,
+        height: 72,
+        borderRadius: 24,
+        backgroundColor: '#27272A',
         alignItems: 'center',
         justifyContent: 'center',
     },
-    title: {
-        color: '#1D1D1F',
-        fontSize: 24,
+    permissionTitle: {
+        color: '#FAFAFA',
+        fontSize: 22,
         fontWeight: '900',
-        letterSpacing: -0.4,
+        letterSpacing: -0.5,
     },
-    subtitle: {
-        color: '#6E5A60',
+    permissionSubtitle: {
+        color: '#A1A1AA',
         fontSize: 14,
-        lineHeight: 20,
+        lineHeight: 22,
         fontWeight: '600',
         textAlign: 'center',
     },
-    primaryButton: {
-        minHeight: 52,
+    permissionButton: {
+        width: '100%',
+        minHeight: 54,
         borderRadius: 16,
-        backgroundColor: '#C84D61',
-        paddingHorizontal: 18,
+        backgroundColor: '#EF4444',
         alignItems: 'center',
         justifyContent: 'center',
-        alignSelf: 'stretch',
-        marginTop: 4,
+        marginTop: 8,
     },
-    primaryButtonText: {
-        color: '#FFFFFF',
-        fontSize: 15,
+    permissionButtonText: {
+        color: '#FAFAFA',
+        fontSize: 16,
         fontWeight: '800',
     },
     topBar: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 12,
-        paddingHorizontal: 18,
-        paddingBottom: 16,
-    },
-    topBarTitleWrap: {
-        flex: 1,
-    },
-    kicker: {
-        color: 'rgba(255,255,255,0.75)',
-        fontSize: 12,
-        fontWeight: '700',
-        letterSpacing: 1,
-        textTransform: 'uppercase',
-    },
-    headerTitle: {
-        color: '#FFFFFF',
-        fontSize: 24,
-        fontWeight: '900',
-        letterSpacing: -0.4,
+        justifyContent: 'space-between',
+        paddingHorizontal: 20,
+        paddingBottom: 20,
     },
     iconButton: {
-        width: 44,
-        height: 44,
-        borderRadius: 16,
-        backgroundColor: '#FFFDFD',
+        width: 46,
+        height: 46,
+        borderRadius: 23,
+        backgroundColor: '#18181B',
+        borderWidth: 1,
+        borderColor: '#27272A',
         alignItems: 'center',
         justifyContent: 'center',
     },
+    topBarCenter: {
+        alignItems: 'center',
+    },
+    kicker: {
+        color: '#EF4444',
+        fontSize: 11,
+        fontWeight: '800',
+        letterSpacing: 1.5,
+        textTransform: 'uppercase',
+        marginBottom: 2,
+    },
+    headerTitle: {
+        color: '#FAFAFA',
+        fontSize: 18,
+        fontWeight: '900',
+    },
     content: {
-        paddingHorizontal: 18,
-        paddingBottom: 28,
-        gap: 16,
+        paddingHorizontal: 20,
+        paddingBottom: 40,
+        gap: 24,
+    },
+    cameraWrapper: {
+        gap: 20,
     },
     cameraFrame: {
+        width: '100%',
+        height: 460,
         borderRadius: 32,
         overflow: 'hidden',
-        backgroundColor: '#1D1D1F',
-        height: 430,
+        backgroundColor: '#000000',
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.22)',
+        borderColor: '#27272A',
     },
     preview: {
         width: '100%',
@@ -390,223 +403,246 @@ const styles = StyleSheet.create({
     },
     cameraOverlay: {
         ...StyleSheet.absoluteFillObject,
+        padding: 20,
     },
-    cornerTopLeft: {
+    targetBracket: {
         position: 'absolute',
-        top: 14,
-        left: 14,
-        width: 28,
-        height: 28,
-        borderLeftWidth: 3,
-        borderTopWidth: 3,
-        borderColor: '#FFFFFF',
-        opacity: 0.9,
+        width: 40,
+        height: 40,
+        borderColor: 'rgba(255, 255, 255, 0.4)',
     },
-    cornerTopRight: {
-        position: 'absolute',
-        top: 14,
-        right: 14,
-        width: 28,
-        height: 28,
-        borderRightWidth: 3,
-        borderTopWidth: 3,
-        borderColor: '#FFFFFF',
-        opacity: 0.9,
+    bracketTopLeft: {
+        top: 24,
+        left: 24,
+        borderTopWidth: 2,
+        borderLeftWidth: 2,
     },
-    cornerBottomLeft: {
-        position: 'absolute',
-        bottom: 14,
-        left: 14,
-        width: 28,
-        height: 28,
-        borderLeftWidth: 3,
-        borderBottomWidth: 3,
-        borderColor: '#FFFFFF',
-        opacity: 0.9,
+    bracketTopRight: {
+        top: 24,
+        right: 24,
+        borderTopWidth: 2,
+        borderRightWidth: 2,
     },
-    cornerBottomRight: {
-        position: 'absolute',
-        bottom: 14,
-        right: 14,
-        width: 28,
-        height: 28,
-        borderRightWidth: 3,
-        borderBottomWidth: 3,
-        borderColor: '#FFFFFF',
-        opacity: 0.9,
+    bracketBottomLeft: {
+        bottom: 24,
+        left: 24,
+        borderBottomWidth: 2,
+        borderLeftWidth: 2,
     },
-    cameraBadge: {
+    bracketBottomRight: {
+        bottom: 24,
+        right: 24,
+        borderBottomWidth: 2,
+        borderRightWidth: 2,
+    },
+    statusBadge: {
         position: 'absolute',
-        top: 14,
-        left: 14,
+        top: 20,
+        left: '50%',
+        transform: [{ translateX: -40 }],
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
-        borderRadius: 999,
-        backgroundColor: 'rgba(0,0,0,0.42)',
-        paddingHorizontal: 10,
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        paddingHorizontal: 12,
         paddingVertical: 6,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.1)',
     },
-    cameraBadgeText: {
-        color: '#FFFFFF',
-        fontSize: 11,
+    statusDot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: '#EF4444',
+    },
+    statusBadgeText: {
+        color: '#FAFAFA',
+        fontSize: 12,
         fontWeight: '800',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
     },
     controlsRow: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 12,
+        gap: 32,
+        minHeight: 80,
     },
-    captureButton: {
-        width: 68,
-        height: 68,
-        borderRadius: 34,
-        backgroundColor: '#C84D61',
+    shutterRing: {
+        width: 80,
+        height: 80,
+        borderRadius: 40,
+        borderWidth: 4,
+        borderColor: '#FAFAFA',
         alignItems: 'center',
         justifyContent: 'center',
     },
-    captureButtonDisabled: {
-        opacity: 0.7,
+    shutterButton: {
+        width: 64,
+        height: 64,
+        borderRadius: 32,
+        backgroundColor: '#FAFAFA',
+        alignItems: 'center',
+        justifyContent: 'center',
     },
-    secondaryButton: {
-        minHeight: 48,
+    shutterButtonActive: {
+        backgroundColor: '#A1A1AA',
+        transform: [{ scale: 0.95 }],
+    },
+    retakeButton: {
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        backgroundColor: '#18181B',
+        borderWidth: 1,
+        borderColor: '#27272A',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    primaryActionButton: {
+        width: 72,
+        height: 72,
+        borderRadius: 36,
+        backgroundColor: '#FAFAFA',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    instructionBanner: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 12,
+        backgroundColor: '#18181B',
+        padding: 16,
         borderRadius: 16,
-        paddingHorizontal: 16,
-        backgroundColor: '#FFFDFD',
+        borderWidth: 1,
+        borderColor: '#27272A',
+    },
+    instructionText: {
+        flex: 1,
+        color: '#A1A1AA',
+        fontSize: 13,
+        lineHeight: 20,
+        fontWeight: '600',
+    },
+    sendPanel: {
+        backgroundColor: '#18181B',
+        borderRadius: 32,
+        padding: 20,
+        borderWidth: 1,
+        borderColor: '#27272A',
+        gap: 16,
+    },
+    panelHeader: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
     },
-    secondaryButtonText: {
-        color: '#C84D61',
-        fontSize: 13,
-        fontWeight: '800',
-    },
-    sendPanel: {
-        borderRadius: 28,
-        backgroundColor: '#FFFDFD',
-        padding: 18,
-        gap: 14,
-    },
-    sendPanelHeader: {
-        gap: 4,
-    },
-    sectionTitle: {
-        color: '#1D1D1F',
+    panelTitle: {
+        color: '#FAFAFA',
         fontSize: 18,
         fontWeight: '900',
     },
-    sendPanelSubtitle: {
-        color: '#7A6168',
+    panelSubtitle: {
+        color: '#A1A1AA',
         fontSize: 13,
-        lineHeight: 18,
+        lineHeight: 20,
         fontWeight: '600',
     },
-    sentBanner: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-        borderRadius: 18,
-        backgroundColor: '#C84D61',
-        paddingHorizontal: 14,
-        paddingVertical: 10,
-    },
-    sentBannerText: {
-        color: '#FFFFFF',
-        fontSize: 13,
-        fontWeight: '800',
-    },
-    recipientCard: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-        borderRadius: 20,
-        backgroundColor: '#FFF7F8',
-        padding: 12,
-    },
-    recipientCardDisabled: {
-        opacity: 0.7,
-    },
-    recipientAvatar: {
-        width: 44,
-        height: 44,
-        borderRadius: 16,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    recipientInitial: {
-        color: '#FFFFFF',
-        fontSize: 16,
-        fontWeight: '900',
-    },
-    recipientInfo: {
-        flex: 1,
-        gap: 2,
-    },
-    recipientName: {
-        color: '#1D1D1F',
-        fontSize: 15,
-        fontWeight: '800',
-    },
-    recipientSubtitle: {
-        color: '#7A6168',
-        fontSize: 12,
-        fontWeight: '600',
-    },
-    recipientAction: {
-        borderRadius: 999,
-        backgroundColor: '#FFFFFF',
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-    },
-    recipientActionDisabled: {
-        opacity: 0.65,
-    },
-    recipientActionText: {
-        color: '#C84D61',
-        fontSize: 13,
-        fontWeight: '800',
-    },
-    emptyRecipients: {
-        marginTop: 8,
-        paddingVertical: 14,
-        paddingHorizontal: 12,
-        borderRadius: 16,
-        backgroundColor: 'rgba(168,106,116,0.08)',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 6,
-    },
-    emptyRecipientsText: {
-        color: '#7A6168',
-        fontSize: 12,
-        lineHeight: 18,
-        textAlign: 'center',
-        fontWeight: '700',
-    },
-    sendError: {
-        color: '#B84A5A',
-        fontSize: 12,
-        lineHeight: 16,
-        fontWeight: '700',
-    },
-    tipCard: {
-        borderRadius: 24,
-        backgroundColor: '#F7ECEE',
-        padding: 16,
+    successBanner: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
+        backgroundColor: '#22C55E',
+        borderRadius: 16,
+        padding: 14,
     },
-    tipText: {
+    successBannerText: {
+        color: '#FAFAFA',
+        fontSize: 14,
+        fontWeight: '800',
+    },
+    contactsList: {
+        gap: 12,
+    },
+    contactCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        backgroundColor: '#09090B',
+        padding: 12,
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: '#27272A',
+    },
+    contactCardDisabled: {
+        opacity: 0.6,
+    },
+    avatar: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    avatarInitial: {
+        color: '#FAFAFA',
+        fontSize: 16,
+        fontWeight: '900',
+    },
+    contactInfo: {
         flex: 1,
-        color: '#6E5A60',
+        gap: 2,
+    },
+    contactName: {
+        color: '#FAFAFA',
+        fontSize: 15,
+        fontWeight: '800',
+    },
+    contactSub: {
+        color: '#71717A',
+        fontSize: 13,
+        fontWeight: '600',
+    },
+    sendAction: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: '#27272A',
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 999,
+    },
+    sendActionDisabled: {
+        backgroundColor: 'transparent',
+    },
+    sendActionText: {
+        color: '#FAFAFA',
+        fontSize: 12,
+        fontWeight: '800',
+    },
+    emptyState: {
+        alignItems: 'center',
+        paddingVertical: 24,
+        gap: 12,
+        backgroundColor: '#09090B',
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: '#27272A',
+        paddingHorizontal: 20,
+    },
+    emptyStateText: {
+        color: '#71717A',
+        fontSize: 13,
+        lineHeight: 20,
+        textAlign: 'center',
+        fontWeight: '600',
+    },
+    errorText: {
+        color: '#EF4444',
         fontSize: 13,
         fontWeight: '700',
-        lineHeight: 18,
+        textAlign: 'center',
     },
 });

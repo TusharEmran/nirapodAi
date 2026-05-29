@@ -1,16 +1,47 @@
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Redirect } from 'expo-router';
-import { Tabs } from 'expo-router';
-import React from 'react';
+import { Redirect, useRouter, Tabs } from 'expo-router';
+import React, { useEffect, useRef } from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Accelerometer } from 'expo-sensors';
 
 import { useAuth } from '@/providers/auth-provider';
 
 export default function TabLayout() {
-  const { isReady, token } = useAuth();
+  const { isReady, token, user } = useAuth();
   const isAndroid = Platform.OS === 'android';
+  const router = useRouter();
+  const lastShake = useRef(0);
+
+  useEffect(() => {
+    if (!token) return;
+
+    Accelerometer.setUpdateInterval(100);
+
+    const subscription = Accelerometer.addListener((accelerometerData) => {
+      const { x, y, z } = accelerometerData;
+      const acceleration = Math.sqrt(x * x + y * y + z * z);
+      
+      // Default to medium sensitivity (approx 2.5g)
+      // If user has a sensitivity setting, adjust accordingly
+      let threshold = 2.5;
+      if (user?.safetySettings?.watchSensitivity === 'low') threshold = 3.5;
+      if (user?.safetySettings?.watchSensitivity === 'high') threshold = 1.8;
+
+      if (acceleration > threshold) {
+        const now = Date.now();
+        if (now - lastShake.current > 2000) {
+          lastShake.current = now;
+          router.push('/emergency');
+        }
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [token, router, user?.safetySettings?.watchSensitivity]);
 
   if (!isReady) {
     return null;
@@ -77,7 +108,7 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
             <MaterialCommunityIcons
               name={icon as React.ComponentProps<typeof MaterialCommunityIcons>['name']}
               size={26}
-              color={isFocused ? '#FFFFFF' : 'rgba(255,255,255,0.78)'}
+              color={isFocused ? '#FAFAFA' : '#71717A'}
             />
             <View style={[styles.activeDot, isFocused && styles.activeDotVisible]} />
           </Pressable>
@@ -90,17 +121,19 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#C84D61',
+    backgroundColor: '#09090B',
   },
   tabBar: {
-    backgroundColor: '#C84D61',
+    backgroundColor: '#18181B',
+    borderTopWidth: 1,
+    borderTopColor: '#27272A',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
     paddingTop: 14,
-    shadowColor: '#7A2434',
+    shadowColor: '#000000',
     shadowOpacity: 0.18,
     shadowRadius: 20,
     shadowOffset: { width: 0, height: -8 },
@@ -119,6 +152,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   activeDotVisible: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#EF4444',
   },
 });

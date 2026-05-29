@@ -22,7 +22,7 @@ export default function ChatThreadScreen() {
 
     const messages = useMemo<ChatMessage[]>(() => thread?.messages || [], [thread]);
     const conversationName = thread?.name || 'Message';
-    const conversationSubtitle = thread?.subtitle || 'Conversation';
+    const conversationSubtitle = thread?.subtitle || 'Secure channel active';
 
     useEffect(() => {
         if (!token || !params.id || photoUri) {
@@ -121,18 +121,22 @@ export default function ChatThreadScreen() {
 
     return (
         <View style={styles.screen}>
+            {/* Minimalist Dashboard Header */}
             <View style={styles.header}>
-                <Pressable onPress={() => router.back()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
-                    <MaterialCommunityIcons name="chevron-left" size={26} color="#C84D61" />
+                <Pressable onPress={() => router.back()} style={styles.backButton} accessibilityRole="button">
+                    <MaterialCommunityIcons name="chevron-left" size={26} color="#FAFAFA" />
                 </Pressable>
 
                 <View style={styles.headerTitleWrap}>
                     <Text style={styles.headerTitle}>{conversationName}</Text>
-                    <Text style={styles.headerSubtitle}>{conversationSubtitle}</Text>
+                    <View style={styles.subtitleRow}>
+                        <View style={styles.statusDot} />
+                        <Text style={styles.headerSubtitle}>{conversationSubtitle}</Text>
+                    </View>
                 </View>
 
                 <View style={styles.headerBadge}>
-                    <MaterialCommunityIcons name="phone-outline" size={18} color="#C84D61" />
+                    <MaterialCommunityIcons name="phone-outline" size={20} color="#FAFAFA" />
                 </View>
             </View>
 
@@ -144,14 +148,14 @@ export default function ChatThreadScreen() {
                 showsVerticalScrollIndicator={false}
             >
                 <View style={styles.threadMeta}>
-                    <Text style={styles.threadMetaText}>{loading ? 'Loading conversation...' : 'Today • Safe channel'}</Text>
+                    <Text style={styles.threadMetaText}>{loading ? 'Syncing...' : 'End-to-End Encrypted'}</Text>
                 </View>
 
                 {photoUri && !photoInjected ? (
                     <View style={[styles.messageBubble, styles.messageBubbleMine, styles.photoBubble]}>
                         <ChatPhoto uris={[photoUri]} />
-                        <Text style={[styles.messageText, styles.messageTextMine]}>Snap sent from Sentinel AI.</Text>
-                        <Text style={[styles.messageTime, styles.messageTimeMine]}>Just now</Text>
+                        <Text style={[styles.messageText, styles.messageTextMine]}>Evidence captured via Sentinel AI.</Text>
+                        <Text style={[styles.messageTime, styles.messageTimeMine]}>Sending...</Text>
                     </View>
                 ) : null}
 
@@ -168,51 +172,66 @@ export default function ChatThreadScreen() {
                             ]}
                         >
                             {hasImage ? <ChatPhoto uris={[messageItem.localImageUri, messageItem.imageUrl]} /> : null}
+                            
                             {messageItem.locationUrl ? (
                                 <Pressable
                                     style={styles.locationChip}
                                     onPress={() => void Linking.openURL(messageItem.locationUrl || '')}
                                     accessibilityRole="link"
                                 >
-                                    <MaterialCommunityIcons name="map-marker-radius" size={16} color="#C84D61" />
-                                    <Text style={styles.locationChipText}>Live location shared</Text>
+                                    <View style={styles.locationIconWrap}>
+                                        <MaterialCommunityIcons name="map-marker-radius" size={14} color="#EF4444" />
+                                    </View>
+                                    <Text style={styles.locationChipText}>Live tracking active</Text>
                                 </Pressable>
                             ) : null}
-                            {messageItem.text ? <Text style={[styles.messageText, messageItem.sender === 'me' && styles.messageTextMine]}>{messageItem.text}</Text> : null}
-                            <Text style={[styles.messageTime, messageItem.sender === 'me' && styles.messageTimeMine]}>{messageItem.time}</Text>
+                            
+                            {messageItem.text ? (
+                                <Text style={[styles.messageText, messageItem.sender === 'me' && styles.messageTextMine]}>
+                                    {messageItem.text}
+                                </Text>
+                            ) : null}
+                            
+                            <Text style={[styles.messageTime, messageItem.sender === 'me' && styles.messageTimeMine]}>
+                                {messageItem.time}
+                            </Text>
                         </View>
                     );
                 })}
             </ScrollView>
 
+            {/* Composer Section */}
             <View style={styles.composer}>
+                <Pressable style={styles.mediaButton} onPress={() => router.push('/snap')} accessibilityRole="button">
+                    <MaterialCommunityIcons name="camera-outline" size={22} color="#FAFAFA" />
+                </Pressable>
+
+                <Pressable style={styles.mediaButton} accessibilityRole="button">
+                    <MaterialCommunityIcons name="microphone-outline" size={22} color="#FAFAFA" />
+                </Pressable>
+
                 <View style={styles.composerField}>
-                    <MaterialCommunityIcons name="message-text-outline" size={18} color="#A46A74" />
                     <TextInput
                         value={message}
                         onChangeText={setMessage}
-                        placeholder="Type a message"
-                        placeholderTextColor="#A46A74"
+                        placeholder="Message..."
+                        placeholderTextColor="#71717A"
                         style={styles.input}
                     />
                 </View>
 
-                <Pressable style={styles.mediaButton} accessibilityRole="button" accessibilityLabel="Attach photo" onPress={() => router.push('/snap')}>
-                    <MaterialCommunityIcons name="image-outline" size={18} color="#C84D61" />
-                </Pressable>
-
-                <Pressable style={styles.mediaButton} accessibilityRole="button" accessibilityLabel="Send audio">
-                    <MaterialCommunityIcons name="microphone-outline" size={18} color="#C84D61" />
-                </Pressable>
-
-                <Pressable style={[styles.sendButton, sending && styles.sendButtonDisabled]} accessibilityRole="button" onPress={() => void handleSendMessage()} disabled={sending}>
-                    <MaterialCommunityIcons name="send" size={18} color="#FFFFFF" />
+                <Pressable 
+                    style={[styles.sendButton, (!message.trim() || sending) && styles.sendButtonDisabled]} 
+                    onPress={() => void handleSendMessage()} 
+                    disabled={!message.trim() || sending}
+                >
+                    <MaterialCommunityIcons name="arrow-up" size={20} color="#09090B" />
                 </Pressable>
             </View>
 
             {errorMessage ? (
                 <View style={styles.errorBar}>
-                    <MaterialCommunityIcons name="alert-circle-outline" size={18} color="#B84A5A" />
+                    <MaterialCommunityIcons name="alert-circle-outline" size={18} color="#FAFAFA" />
                     <Text style={styles.errorText}>{errorMessage}</Text>
                 </View>
             ) : null}
@@ -257,182 +276,228 @@ function ChatPhoto({ uris }: { uris: (string | null | undefined)[] }) {
 const styles = StyleSheet.create({
     screen: {
         flex: 1,
-        backgroundColor: '#C84D61',
-        paddingTop: 42,
-        paddingHorizontal: 18,
-        paddingBottom: 18,
+        backgroundColor: '#09090B',
+        paddingTop: 48, // Adjust for notch
     },
     header: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 12,
-        marginBottom: 18,
+        paddingHorizontal: 20,
+        paddingBottom: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#18181B',
     },
     backButton: {
-        width: 42,
-        height: 42,
-        borderRadius: 21,
-        backgroundColor: '#FFFFFF',
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: '#18181B',
         alignItems: 'center',
         justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#27272A',
     },
     headerTitleWrap: {
         flex: 1,
     },
     headerTitle: {
-        color: '#FFFFFF',
-        fontSize: 20,
+        color: '#FAFAFA',
+        fontSize: 18,
         fontWeight: '900',
     },
-    headerSubtitle: {
-        color: 'rgba(255,255,255,0.82)',
-        fontSize: 12,
-        fontWeight: '700',
+    subtitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
         marginTop: 2,
     },
+    statusDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: '#10B981', // Green indicator
+    },
+    headerSubtitle: {
+        color: '#A1A1AA',
+        fontSize: 12,
+        fontWeight: '600',
+    },
     headerBadge: {
-        width: 42,
-        height: 42,
-        borderRadius: 21,
-        backgroundColor: '#FFFFFF',
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: '#18181B',
         alignItems: 'center',
         justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#27272A',
     },
     thread: {
         flex: 1,
-        backgroundColor: '#C84D61',
     },
     threadContent: {
-        gap: 12,
-        paddingBottom: 18,
-        backgroundColor: '#C84D61',
+        gap: 16,
+        padding: 20,
     },
     threadMeta: {
         alignItems: 'center',
-        marginBottom: 4,
+        marginBottom: 8,
     },
     threadMetaText: {
-        color: 'rgba(255,255,255,0.8)',
-        fontSize: 12,
+        color: '#71717A',
+        fontSize: 11,
         fontWeight: '700',
+        textTransform: 'uppercase',
+        letterSpacing: 1,
     },
     messageBubble: {
         maxWidth: '82%',
-        borderRadius: 24,
-        paddingHorizontal: 14,
+        borderRadius: 20,
+        paddingHorizontal: 16,
         paddingVertical: 12,
-        gap: 6,
+        gap: 4,
     },
     messageBubbleTheirs: {
         alignSelf: 'flex-start',
-        backgroundColor: 'rgba(255,255,255,0.94)',
+        backgroundColor: '#18181B',
+        borderWidth: 1,
+        borderColor: '#27272A',
+        borderBottomLeftRadius: 4,
     },
     messageBubbleMine: {
         alignSelf: 'flex-end',
-        backgroundColor: '#F4D7DB',
+        backgroundColor: '#27272A',
+        borderWidth: 1,
+        borderColor: '#3F3F46',
+        borderBottomRightRadius: 4,
     },
     messageText: {
-        color: '#1D1D1F',
-        fontSize: 14,
-        fontWeight: '700',
-        lineHeight: 20,
+        color: '#FAFAFA',
+        fontSize: 15,
+        fontWeight: '500',
+        lineHeight: 22,
     },
     messageTextMine: {
-        color: '#7A2434',
+        color: '#FAFAFA',
     },
     messageTime: {
-        color: '#A46A74',
+        color: '#71717A',
         fontSize: 11,
-        fontWeight: '700',
+        fontWeight: '600',
         alignSelf: 'flex-start',
+        marginTop: 2,
     },
     messageTimeMine: {
-        color: '#A46A74',
+        color: '#A1A1AA',
         alignSelf: 'flex-end',
     },
     photoBubble: {
         width: '82%',
-        gap: 10,
+        gap: 12,
+        paddingHorizontal: 6,
+        paddingVertical: 6,
     },
     photoPreview: {
         width: '100%',
-        height: 220,
-        borderRadius: 18,
-        backgroundColor: '#D38B97',
+        height: 240,
+        borderRadius: 16,
+        backgroundColor: '#09090B',
     },
     locationChip: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 6,
-        borderRadius: 999,
-        backgroundColor: '#FFF8F9',
+        gap: 8,
+        borderRadius: 12,
+        backgroundColor: '#09090B',
         paddingHorizontal: 10,
         paddingVertical: 8,
         alignSelf: 'flex-start',
+        marginTop: 4,
+        marginBottom: 4,
+        borderWidth: 1,
+        borderColor: '#27272A',
+    },
+    locationIconWrap: {
+        width: 24,
+        height: 24,
+        borderRadius: 8,
+        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     locationChipText: {
-        color: '#C84D61',
-        fontSize: 12,
-        fontWeight: '800',
+        color: '#FAFAFA',
+        fontSize: 13,
+        fontWeight: '700',
     },
     composer: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 8,
-        marginTop: 12,
-        backgroundColor: '#C84D61',
+        gap: 10,
+        paddingHorizontal: 16,
+        paddingVertical: 16,
+        backgroundColor: '#09090B',
+        borderTopWidth: 1,
+        borderTopColor: '#18181B',
+    },
+    mediaButton: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: '#18181B',
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     composerField: {
         flex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10,
-        minHeight: 54,
-        borderRadius: 18,
-        backgroundColor: 'rgba(255,255,255,0.95)',
-        paddingHorizontal: 14,
+        minHeight: 44,
+        borderRadius: 22,
+        backgroundColor: '#18181B',
+        paddingHorizontal: 16,
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#27272A',
     },
     input: {
-        flex: 1,
-        color: '#1D1D1F',
-        fontSize: 14,
-        fontWeight: '600',
+        color: '#FAFAFA',
+        fontSize: 15,
+        fontWeight: '500',
+        paddingTop: 10,
+        paddingBottom: 10,
     },
     sendButton: {
-        width: 54,
-        height: 54,
-        borderRadius: 27,
-        backgroundColor: '#B85A6B',
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: '#FAFAFA',
         alignItems: 'center',
         justifyContent: 'center',
     },
     sendButtonDisabled: {
-        opacity: 0.7,
-    },
-    mediaButton: {
-        width: 42,
-        height: 42,
-        borderRadius: 21,
-        backgroundColor: 'rgba(255,255,255,0.95)',
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderWidth: 1,
-        borderColor: 'rgba(184,90,107,0.18)',
+        opacity: 0.3,
     },
     errorBar: {
-        marginTop: 10,
+        position: 'absolute',
+        top: 100,
+        left: 20,
+        right: 20,
         borderRadius: 16,
-        backgroundColor: 'rgba(255,255,255,0.95)',
-        paddingHorizontal: 12,
-        paddingVertical: 10,
+        backgroundColor: '#EF4444',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 8,
+        gap: 10,
+        shadowColor: '#EF4444',
+        shadowOpacity: 0.3,
+        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 4 },
     },
     errorText: {
         flex: 1,
-        color: '#B84A5A',
-        fontSize: 13,
+        color: '#FAFAFA',
+        fontSize: 14,
         fontWeight: '700',
     },
 });

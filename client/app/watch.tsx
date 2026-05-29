@@ -1,9 +1,11 @@
 import { Audio } from 'expo-av';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Animated, Easing, Pressable, ScrollView, StyleSheet, Text, View, Dimensions } from 'react-native';
 
 import { getMissingApiConfigMessage, ML_API_BASE_URL } from '@/lib/auth-api';
+
+const { width } = Dimensions.get('window');
 
 const liveMetrics = [
     {
@@ -12,7 +14,7 @@ const liveMetrics = [
         value: '84',
         unit: 'bpm',
         icon: 'heart-pulse',
-        tone: '#C84D61',
+        tone: '#EF4444', // Red
     },
     {
         id: 'blood-pressure',
@@ -20,7 +22,7 @@ const liveMetrics = [
         value: '118/76',
         unit: 'mmHg',
         icon: 'blood-bag',
-        tone: '#B85A6B',
+        tone: '#F43F5E', // Rose
     },
     {
         id: 'stress',
@@ -28,21 +30,14 @@ const liveMetrics = [
         value: 'Low',
         unit: 'stable',
         icon: 'shield-check',
-        tone: '#6E8B73',
+        tone: '#10B981', // Green
     },
 ] as const;
 
-const detectionRules = [
-    'Sudden heart-rate spikes above your baseline',
-    'Elevated blood pressure with motion-free periods',
-    'Repeated stress peaks over a short interval',
-    'Manual trigger from the watch button',
-] as const;
-
 const recentEvents = [
-    { id: '1', title: 'Baseline synced', detail: 'Watch connected 2 minutes ago', time: 'Now' },
-    { id: '2', title: 'Reading reviewed', detail: 'Vitals stayed in the safe range', time: '14:20' },
-    { id: '3', title: 'Area scan ready', detail: 'Siren mode can be triggered from home', time: '14:18' },
+    { id: '1', title: 'Baseline synced', detail: 'Vitals established', time: 'Now', type: 'sync' },
+    { id: '2', title: 'Safe Audio Filter', detail: 'No distress detected', time: '14:20', type: 'audio' },
+    { id: '3', title: 'Watch Paired', detail: 'Connection established', time: '14:18', type: 'device' },
 ] as const;
 
 export default function WatchScreen() {
@@ -50,36 +45,63 @@ export default function WatchScreen() {
     const [isAlertActive, setIsAlertActive] = useState(false);
     const [recording, setRecording] = useState<Audio.Recording | null>(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [recordProgress, setRecordProgress] = useState(0);
 
-    const nextActionLabel = useMemo(() => (isPaired ? 'Sync watch data' : 'Connect watch'), [isPaired]);
-    const monitoringStatus = isAlertActive ? 'Suspicious pattern detected' : 'Monitoring normal range';
+    const pulseAnim = useRef(new Animated.Value(0)).current;
+    const progressAnim = useRef(new Animated.Value(0)).current;
+
+    useEffect(() => {
+        if (recording || isAnalyzing || isAlertActive) {
+            Animated.loop(
+                Animated.sequence([
+                    Animated.timing(pulseAnim, {
+                        toValue: 1,
+                        duration: 1000,
+                        easing: Easing.inOut(Easing.ease),
+                        useNativeDriver: true,
+                    }),
+                    Animated.timing(pulseAnim, {
+                        toValue: 0,
+                        duration: 1000,
+                        easing: Easing.inOut(Easing.ease),
+                        useNativeDriver: true,
+                    }),
+                ])
+            ).start();
+        } else {
+            pulseAnim.setValue(0);
+        }
+    }, [recording, isAnalyzing, isAlertActive, pulseAnim]);
 
     const analyzeAudio = async () => {
         if (recording || isAnalyzing) return;
         try {
-            console.log('Requesting permissions..');
             await Audio.requestPermissionsAsync();
             await Audio.setAudioModeAsync({
                 allowsRecordingIOS: true,
                 playsInSilentModeIOS: true,
             });
 
-            console.log('Starting recording..');
             const { recording: newRecording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
             setRecording(newRecording);
+            setRecordProgress(0);
+            
+            progressAnim.setValue(0);
+            Animated.timing(progressAnim, {
+                toValue: 100,
+                duration: 6000,
+                useNativeDriver: false,
+            }).start();
 
             // Record for exactly 6 seconds
             setTimeout(async () => {
                 try {
-                    console.log('Stopping recording..');
                     setRecording(null);
                     await newRecording.stopAndUnloadAsync();
                     const uri = newRecording.getURI();
-
                     if (!uri) return;
 
                     setIsAnalyzing(true);
-
                     const formData = new FormData();
                     formData.append('file', {
                         uri: uri,
@@ -87,9 +109,7 @@ export default function WatchScreen() {
                         type: 'audio/m4a'
                     } as any);
 
-                    console.log('Uploading to backend...');
                     const missingConfigMessage = getMissingApiConfigMessage(ML_API_BASE_URL);
-
                     if (missingConfigMessage) {
                         throw new Error(missingConfigMessage);
                     }
@@ -97,15 +117,12 @@ export default function WatchScreen() {
                     const response = await fetch(`${ML_API_BASE_URL}/analyze`, {
                         method: 'POST',
                         body: formData,
-                        headers: {
-                            'Content-Type': 'multipart/form-data',
-                        },
+                        headers: { 'Content-Type': 'multipart/form-data' },
                     });
 
                     const result = await response.json();
-                    console.log('Result:', result);
-
                     setIsAnalyzing(false);
+                    progressAnim.setValue(0);
 
                     if (result.status === 'SCREAM') {
                         setIsAlertActive(true);
@@ -117,364 +134,251 @@ export default function WatchScreen() {
                         Alert.alert('Safe', 'No distress detected in the audio.');
                         setIsAlertActive(false);
                     }
-
                 } catch (err) {
                     setIsAnalyzing(false);
-                    console.error('Failed to stop recording or upload', err);
+                    progressAnim.setValue(0);
                     Alert.alert('Error', 'Failed to analyze audio');
                 }
             }, 6000);
-
         } catch (err) {
             console.error('Failed to start recording', err);
         }
     };
 
     return (
-        <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-            <View style={styles.headerCard}>
-                <View style={styles.heroCopy}>
-                    <Text style={styles.kicker}>Smart watch center</Text>
-                    <Text style={styles.title}>Live vitals for suspicious activity detection</Text>
-                    <Text style={styles.subtitle}>
-                        Pair your wearable to monitor heart rate and blood pressure, then flag anything that looks abnormal.
-                    </Text>
-                </View>
-
-                <View style={styles.deviceCard}>
-                    <View style={styles.deviceIconWrap}>
-                        <MaterialCommunityIcons name="watch-variant" size={28} color="#C84D61" />
-                    </View>
-                    <View style={styles.deviceInfo}>
-                        <Text style={styles.deviceName}>Sentinel AI Watch</Text>
-                        <Text style={styles.deviceStatus}>{isPaired ? 'Connected and syncing live data' : 'Not paired yet'}</Text>
-                    </View>
-                    <View style={[styles.statusPill, isPaired ? styles.statusPillActive : styles.statusPillIdle]}>
-                        <Text style={styles.statusPillText}>{isPaired ? 'Paired' : 'Offline'}</Text>
-                    </View>
-                </View>
-
-                <Pressable
-                    style={styles.primaryButton}
-                    onPress={() => {
-                        setIsPaired(true);
-                        Alert.alert('Watch connected', 'Your smart watch is ready to calculate BP and heart rate for detection.');
-                    }}
-                    accessibilityRole="button">
-                    <MaterialCommunityIcons name="bluetooth-connect" size={18} color="#FFFFFF" />
-                    <Text style={styles.primaryButtonText}>{nextActionLabel}</Text>
-                </Pressable>
-                <View style={styles.heroButtonRow}>
-                    <Pressable
-                        style={[styles.secondaryHeroButton, (recording || isAnalyzing) && { opacity: 0.5 }]}
-                        onPress={analyzeAudio}
-                        disabled={!!recording || isAnalyzing}
-                        accessibilityRole="button">
-                        <MaterialCommunityIcons name={recording ? 'record-circle' : (isAnalyzing ? 'loading' : 'microphone')} size={18} color="#C84D61" />
-                        <Text style={styles.secondaryHeroButtonText}>
-                            {recording ? 'Recording 6s...' : (isAnalyzing ? 'Analyzing...' : 'Test AI Audio Safety')}
-                        </Text>
-                    </Pressable>
-                </View>
-            </View>
-
-            <View style={[styles.alertBanner, isAlertActive && styles.alertBannerActive]}>
-                <View style={styles.alertIconWrap}>
-                    <MaterialCommunityIcons name={isAlertActive ? 'shield-alert' : 'shield-check'} size={20} color="#FFFFFF" />
-                </View>
-
-                <View style={styles.alertCopy}>
-                    <Text style={styles.alertTitle}>{monitoringStatus}</Text>
-                    <Text style={styles.alertText}>
-                        {isAlertActive
-                            ? 'High heart rate and blood pressure readings can be pushed to your emergency flow.'
-                            : 'The watch is watching for unusual heart rate or blood pressure changes.'}
-                    </Text>
-                </View>
-            </View>
-
-            <View style={styles.sectionCard}>
-                <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>Live metrics</Text>
-                    <MaterialCommunityIcons name="pulse" size={20} color="#C84D61" />
-                </View>
-
-                <View style={styles.metricGrid}>
-                    {liveMetrics.map((metric) => (
-                        <View key={metric.id} style={styles.metricCard}>
-                            <View style={[styles.metricIconWrap, { backgroundColor: `${metric.tone}14` }]}>
-                                <MaterialCommunityIcons name={metric.icon as never} size={20} color={metric.tone} />
-                            </View>
-                            <Text style={styles.metricLabel}>{metric.label}</Text>
-                            <Text style={styles.metricValue}>{metric.value}</Text>
-                            <Text style={styles.metricUnit}>{metric.unit}</Text>
+        <View style={styles.screen}>
+            <ScrollView style={styles.screen} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+                
+                {/* Modern Status Header */}
+                <View style={styles.statusBar}>
+                    <View style={styles.statusLeft}>
+                        <View style={styles.deviceIconBox}>
+                            <MaterialCommunityIcons name="watch-variant" size={24} color="#FAFAFA" />
                         </View>
-                    ))}
-                </View>
-            </View>
-
-            <View style={styles.sectionCard}>
-                <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>Detection rules</Text>
-                    <MaterialCommunityIcons name="radar" size={20} color="#C84D61" />
-                </View>
-
-                <Text style={styles.sectionCopy}>
-                    The watch helps compare incoming readings against your normal range and raises a warning when something looks suspicious.
-                </Text>
-
-                <View style={styles.ruleList}>
-                    {detectionRules.map((rule) => (
-                        <View key={rule} style={styles.ruleRow}>
-                            <View style={styles.ruleBullet} />
-                            <Text style={styles.ruleText}>{rule}</Text>
-                        </View>
-                    ))}
-                </View>
-            </View>
-
-            <View style={styles.sectionCard}>
-                <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>Recent activity</Text>
-                    <MaterialCommunityIcons name="timeline-clock-outline" size={20} color="#C84D61" />
-                </View>
-
-                <View style={styles.timeline}>
-                    {recentEvents.map((event, index) => (
-                        <View key={event.id} style={styles.timelineRow}>
-                            <View style={styles.timelineRail}>
-                                <View style={styles.timelineDot} />
-                                {index !== recentEvents.length - 1 ? <View style={styles.timelineLine} /> : null}
+                        <View>
+                            <Text style={styles.deviceName}>Sentinel Watch</Text>
+                            <View style={styles.statusRow}>
+                                <View style={[styles.statusDot, isPaired ? styles.statusDotActive : styles.statusDotIdle]} />
+                                <Text style={styles.statusText}>{isPaired ? 'Connected • 84% Battery' : 'Not Paired'}</Text>
                             </View>
-                            <View style={styles.timelineContent}>
-                                <View style={styles.timelineHeader}>
-                                    <Text style={styles.timelineTitle}>{event.title}</Text>
-                                    <Text style={styles.timelineTime}>{event.time}</Text>
+                        </View>
+                    </View>
+                    {!isPaired && (
+                        <Pressable style={styles.pairButtonSmall} onPress={() => setIsPaired(true)}>
+                            <Text style={styles.pairButtonSmallText}>Pair</Text>
+                        </Pressable>
+                    )}
+                </View>
+
+                {/* Primary Vitals Dashboard */}
+                <View style={styles.dashboardSection}>
+                    <View style={styles.sectionHeader}>
+                        <Text style={styles.sectionTitle}>Live Vitals</Text>
+                        <MaterialCommunityIcons name="heart-pulse" size={20} color="#71717A" />
+                    </View>
+                    
+                    <View style={styles.vitalsGrid}>
+                        {liveMetrics.map((metric, index) => (
+                            <View 
+                                key={metric.id} 
+                                style={[styles.vitalCard, index === 0 ? styles.vitalCardPrimary : {}]}
+                            >
+                                <View style={styles.vitalTop}>
+                                    <View style={[styles.vitalIconWrap, { backgroundColor: `${metric.tone}1A` }]}>
+                                        <MaterialCommunityIcons name={metric.icon as never} size={18} color={metric.tone} />
+                                    </View>
+                                    <Text style={styles.vitalLabel}>{metric.label}</Text>
                                 </View>
-                                <Text style={styles.timelineDetail}>{event.detail}</Text>
+                                <View style={styles.vitalBottom}>
+                                    <Text style={styles.vitalValue}>{isPaired ? metric.value : '--'}</Text>
+                                    <Text style={styles.vitalUnit}>{metric.unit}</Text>
+                                </View>
                             </View>
-                        </View>
-                    ))}
+                        ))}
+                    </View>
                 </View>
+
+                {/* AI Audio Scanner Widget */}
+                <View style={styles.scannerWidget}>
+                    <View style={styles.scannerHeader}>
+                        <View>
+                            <Text style={styles.scannerTitle}>AI Audio Analysis</Text>
+                            <Text style={styles.scannerSubtitle}>Detect screams or distress sounds</Text>
+                        </View>
+                        <MaterialCommunityIcons name="shield-check" size={24} color={isAlertActive ? '#EF4444' : '#10B981'} />
+                    </View>
+
+                    <View style={styles.scannerInteractive}>
+                        <Animated.View style={[styles.scannerPulseRings, {
+                            transform: [{ scale: pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.25] }) }],
+                            opacity: pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] })
+                        }]} pointerEvents="none" />
+                        
+                        <Pressable 
+                            style={[styles.scannerButton, recording ? styles.scannerButtonRecording : isAnalyzing ? styles.scannerButtonAnalyzing : {}]}
+                            onPress={analyzeAudio}
+                            disabled={!!recording || isAnalyzing}
+                        >
+                            <MaterialCommunityIcons 
+                                name={recording ? 'microphone' : (isAnalyzing ? 'brain' : 'microphone-outline')} 
+                                size={32} 
+                                color="#FAFAFA" 
+                            />
+                        </Pressable>
+                    </View>
+
+                    <Text style={styles.scannerStatusText}>
+                        {recording ? 'Listening for 6 seconds...' : isAnalyzing ? 'Running neural network...' : 'Tap to scan environment'}
+                    </Text>
+
+                    {/* Progress Bar for Recording */}
+                    <View style={styles.progressBarBg}>
+                        <Animated.View style={[styles.progressBarFill, {
+                            width: progressAnim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] })
+                        }]} />
+                    </View>
+                </View>
+
+                {/* Distress Banner (Conditional) */}
+                {isAlertActive && (
+                    <Animated.View style={[styles.alertBanner, { opacity: pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [0.8, 1] }) }]}>
+                        <MaterialCommunityIcons name="alert-decagram" size={28} color="#EF4444" />
+                        <View style={styles.alertBannerTextWrap}>
+                            <Text style={styles.alertBannerTitle}>Distress Pattern Detected</Text>
+                            <Text style={styles.alertBannerDesc}>Abnormal audio or vitals picked up. SOS ready.</Text>
+                        </View>
+                    </Animated.View>
+                )}
+
+                {/* Activity Feed */}
+                <View style={styles.feedSection}>
+                    <Text style={styles.sectionTitle}>System Log</Text>
+                    <View style={styles.feedContainer}>
+                        {recentEvents.map((event, index) => (
+                            <View key={event.id} style={styles.feedItem}>
+                                <View style={styles.feedIconWrap}>
+                                    <MaterialCommunityIcons 
+                                        name={event.type === 'sync' ? 'sync' : event.type === 'audio' ? 'waveform' : 'bluetooth'} 
+                                        size={16} 
+                                        color="#A1A1AA" 
+                                    />
+                                </View>
+                                <View style={styles.feedContent}>
+                                    <View style={styles.feedHeader}>
+                                        <Text style={styles.feedTitle}>{event.title}</Text>
+                                        <Text style={styles.feedTime}>{event.time}</Text>
+                                    </View>
+                                    <Text style={styles.feedDetail}>{event.detail}</Text>
+                                </View>
+                            </View>
+                        ))}
+                    </View>
+                </View>
+
+            </ScrollView>
+
+            {/* Sticky Action Footer */}
+            <View style={styles.stickyFooter}>
+                <Pressable
+                    style={styles.actionButtonSecondary}
+                    onPress={() => Alert.alert('Area scan', 'Use the home screen siren tile to start an area scan.')}
+                >
+                    <MaterialCommunityIcons name="radar" size={20} color="#FAFAFA" />
+                </Pressable>
+                
+                <Pressable
+                    style={[styles.actionButtonPrimary, !isPaired && styles.actionButtonPrimaryInactive]}
+                    onPress={() => {
+                        if (!isPaired) {
+                            setIsPaired(true);
+                            Alert.alert('Watch Connected', 'Live vitals sync has started.');
+                        } else {
+                            Alert.alert('Sync complete', 'All data is up to date.');
+                        }
+                    }}
+                >
+                    <MaterialCommunityIcons name={isPaired ? 'check-circle' : 'bluetooth-connect'} size={20} color="#FAFAFA" />
+                    <Text style={styles.actionButtonPrimaryText}>{isPaired ? 'Synced' : 'Connect Watch'}</Text>
+                </Pressable>
             </View>
-
-            <Pressable
-                style={styles.secondaryButton}
-                onPress={() => {
-                    if (isAlertActive) {
-                        Alert.alert('Emergency flow', 'A suspicious reading is active. Use the home screen siren tile if you want to scan your area now.');
-                        return;
-                    }
-
-                    Alert.alert('Area scan', 'Use the home screen siren tile to start an area scan.');
-                }}
-                accessibilityRole="button">
-                <MaterialCommunityIcons name="alarm-light" size={18} color="#C84D61" />
-                <Text style={styles.secondaryButtonText}>Open area scan</Text>
-            </Pressable>
-        </ScrollView>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
     screen: {
         flex: 1,
-        backgroundColor: '#C84D61',
+        backgroundColor: '#09090B',
     },
     content: {
-        padding: 16,
-        paddingTop: 18,
-        paddingBottom: 20,
-        gap: 10,
+        paddingTop: 40, // For notch safety
+        paddingHorizontal: 20,
+        paddingBottom: 100, // Space for sticky footer
+        gap: 24,
     },
-    headerCard: {
-        borderRadius: 30,
-        backgroundColor: 'rgba(255,255,255,0.98)',
-        padding: 14,
-        gap: 12,
-        shadowColor: '#7A2434',
-        shadowOpacity: 0.14,
-        shadowRadius: 18,
-        shadowOffset: { width: 0, height: 10 },
-        elevation: 8,
-    },
-    topRow: {
+    statusBar: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
+        backgroundColor: '#18181B',
+        borderRadius: 24,
+        padding: 12,
+        borderWidth: 1,
+        borderColor: '#27272A',
     },
-    iconButton: {
-        width: 42,
-        height: 42,
-        borderRadius: 21,
-        backgroundColor: '#F7EDEF',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    headerBadge: {
-        width: 42,
-        height: 42,
-        borderRadius: 21,
-        backgroundColor: '#C84D61',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    heroCopy: {
-        gap: 6,
-    },
-    kicker: {
-        color: '#B85A6B',
-        fontSize: 12,
-        fontWeight: '800',
-        letterSpacing: 1,
-        textTransform: 'uppercase',
-    },
-    title: {
-        color: '#1D1D1F',
-        fontSize: 24,
-        lineHeight: 28,
-        fontWeight: '900',
-        letterSpacing: -0.6,
-    },
-    subtitle: {
-        color: '#8F8A8D',
-        fontSize: 13,
-        lineHeight: 18,
-        fontWeight: '600',
-    },
-    deviceCard: {
+    statusLeft: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 12,
-        borderRadius: 22,
-        backgroundColor: '#FFF7F8',
-        padding: 12,
-        borderWidth: 1,
-        borderColor: 'rgba(200,77,97,0.08)',
     },
-    deviceIconWrap: {
-        width: 48,
-        height: 48,
+    deviceIconBox: {
+        width: 44,
+        height: 44,
         borderRadius: 16,
-        backgroundColor: '#FFFFFF',
+        backgroundColor: '#27272A',
         alignItems: 'center',
         justifyContent: 'center',
     },
-    deviceInfo: {
-        flex: 1,
-        gap: 2,
-    },
     deviceName: {
-        color: '#1D1D1F',
+        color: '#FAFAFA',
         fontSize: 16,
         fontWeight: '900',
     },
-    deviceStatus: {
-        color: '#8F8A8D',
+    statusRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        marginTop: 2,
+    },
+    statusDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+    },
+    statusDotActive: {
+        backgroundColor: '#10B981',
+    },
+    statusDotIdle: {
+        backgroundColor: '#71717A',
+    },
+    statusText: {
+        color: '#A1A1AA',
         fontSize: 13,
         fontWeight: '600',
     },
-    statusPill: {
-        minWidth: 72,
-        minHeight: 30,
+    pairButtonSmall: {
+        paddingHorizontal: 16,
+        paddingVertical: 8,
         borderRadius: 999,
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingHorizontal: 12,
+        backgroundColor: '#EF4444',
     },
-    statusPillActive: {
-        backgroundColor: 'rgba(110,139,115,0.12)',
-    },
-    statusPillIdle: {
-        backgroundColor: 'rgba(200,77,97,0.12)',
-    },
-    statusPillText: {
-        color: '#C84D61',
+    pairButtonSmallText: {
+        color: '#FAFAFA',
         fontSize: 12,
         fontWeight: '800',
     },
-    primaryButton: {
-        minHeight: 48,
-        borderRadius: 999,
-        backgroundColor: '#C84D61',
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 8,
-    },
-    primaryButtonText: {
-        color: '#FFFFFF',
-        fontSize: 15,
-        fontWeight: '800',
-    },
-    heroButtonRow: {
-        flexDirection: 'row',
-        gap: 10,
-    },
-    secondaryHeroButton: {
-        flex: 1,
-        minHeight: 48,
-        borderRadius: 999,
-        backgroundColor: '#FFF7F8',
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 8,
-        borderWidth: 1,
-        borderColor: 'rgba(200,77,97,0.12)',
-    },
-    secondaryHeroButtonText: {
-        color: '#C84D61',
-        fontSize: 14,
-        fontWeight: '800',
-    },
-    alertBanner: {
-        borderRadius: 22,
-        backgroundColor: '#FFFFFF',
-        padding: 12,
-        flexDirection: 'row',
-        alignItems: 'center',
+    dashboardSection: {
         gap: 12,
-        borderWidth: 1,
-        borderColor: 'rgba(200,77,97,0.08)',
-    },
-    alertBannerActive: {
-        backgroundColor: '#FFF1F3',
-        borderColor: 'rgba(200,77,97,0.22)',
-    },
-    alertIconWrap: {
-        width: 42,
-        height: 42,
-        borderRadius: 21,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: '#C84D61',
-    },
-    alertCopy: {
-        flex: 1,
-        gap: 2,
-    },
-    alertTitle: {
-        color: '#1D1D1F',
-        fontSize: 15,
-        fontWeight: '900',
-    },
-    alertText: {
-        color: '#8F8A8D',
-        fontSize: 13,
-        lineHeight: 18,
-        fontWeight: '600',
-    },
-    sectionCard: {
-        borderRadius: 26,
-        backgroundColor: 'rgba(255,255,255,0.98)',
-        padding: 14,
-        gap: 12,
-        shadowColor: '#7A2434',
-        shadowOpacity: 0.1,
-        shadowRadius: 16,
-        shadowOffset: { width: 0, height: 8 },
-        elevation: 6,
     },
     sectionHeader: {
         flexDirection: 'row',
@@ -482,141 +386,256 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
     },
     sectionTitle: {
-        color: '#1D1D1F',
+        color: '#FAFAFA',
         fontSize: 18,
         fontWeight: '900',
     },
-    metricGrid: {
+    vitalsGrid: {
         flexDirection: 'row',
-        gap: 8,
-    },
-    metricCard: {
-        flex: 1,
-        borderRadius: 20,
-        backgroundColor: '#FFF8F9',
-        padding: 11,
-        gap: 4,
-        alignItems: 'center',
-    },
-    metricIconWrap: {
-        width: 36,
-        height: 36,
-        borderRadius: 12,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: 2,
-    },
-    metricLabel: {
-        color: '#7D6A70',
-        fontSize: 11,
-        fontWeight: '700',
-        textAlign: 'center',
-    },
-    metricValue: {
-        color: '#1D1D1F',
-        fontSize: 18,
-        fontWeight: '900',
-    },
-    metricUnit: {
-        color: '#B85A6B',
-        fontSize: 10,
-        fontWeight: '700',
-        textTransform: 'uppercase',
-    },
-    sectionCopy: {
-        color: '#8F8A8D',
-        fontSize: 14,
-        lineHeight: 21,
-        fontWeight: '600',
-    },
-    ruleList: {
+        flexWrap: 'wrap',
         gap: 12,
     },
-    ruleRow: {
+    vitalCard: {
+        width: (width - 40 - 12) / 2, // 2 columns
+        backgroundColor: '#18181B',
+        borderRadius: 24,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: '#27272A',
+        justifyContent: 'space-between',
+        height: 110,
+    },
+    vitalCardPrimary: {
+        width: '100%',
+        height: 130,
+        backgroundColor: '#18181B',
+    },
+    vitalTop: {
         flexDirection: 'row',
-        alignItems: 'flex-start',
+        alignItems: 'center',
         gap: 10,
     },
-    ruleBullet: {
-        width: 8,
-        height: 8,
-        borderRadius: 999,
-        marginTop: 6,
-        backgroundColor: '#C84D61',
+    vitalIconWrap: {
+        width: 32,
+        height: 32,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
-    ruleText: {
-        flex: 1,
-        color: '#1D1D1F',
+    vitalLabel: {
+        color: '#A1A1AA',
+        fontSize: 13,
+        fontWeight: '700',
+    },
+    vitalBottom: {
+        flexDirection: 'row',
+        alignItems: 'baseline',
+        gap: 6,
+    },
+    vitalValue: {
+        color: '#FAFAFA',
+        fontSize: 32,
+        fontWeight: '900',
+        letterSpacing: -1,
+    },
+    vitalUnit: {
+        color: '#71717A',
         fontSize: 14,
-        lineHeight: 20,
+        fontWeight: '700',
+    },
+    scannerWidget: {
+        backgroundColor: '#18181B',
+        borderRadius: 32,
+        padding: 20,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#27272A',
+        overflow: 'hidden',
+    },
+    scannerHeader: {
+        width: '100%',
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+    },
+    scannerTitle: {
+        color: '#FAFAFA',
+        fontSize: 18,
+        fontWeight: '900',
+    },
+    scannerSubtitle: {
+        color: '#A1A1AA',
+        fontSize: 13,
+        marginTop: 2,
         fontWeight: '600',
     },
-    timeline: {
-        gap: 14,
+    scannerInteractive: {
+        width: 140,
+        height: 140,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginVertical: 20,
     },
-    timelineRow: {
+    scannerPulseRings: {
+        position: 'absolute',
+        width: 140,
+        height: 140,
+        borderRadius: 70,
+        backgroundColor: 'rgba(239, 68, 68, 0.2)',
+        borderWidth: 1,
+        borderColor: 'rgba(239, 68, 68, 0.4)',
+    },
+    scannerButton: {
+        width: 90,
+        height: 90,
+        borderRadius: 45,
+        backgroundColor: '#27272A',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 4,
+        borderColor: '#18181B',
+        elevation: 10,
+        shadowColor: '#000',
+        shadowOpacity: 0.5,
+        shadowRadius: 15,
+        shadowOffset: { width: 0, height: 8 },
+    },
+    scannerButtonRecording: {
+        backgroundColor: '#EF4444',
+    },
+    scannerButtonAnalyzing: {
+        backgroundColor: '#F59E0B',
+    },
+    scannerStatusText: {
+        color: '#FAFAFA',
+        fontSize: 14,
+        fontWeight: '700',
+        marginBottom: 16,
+    },
+    progressBarBg: {
+        width: '100%',
+        height: 6,
+        backgroundColor: '#27272A',
+        borderRadius: 3,
+        overflow: 'hidden',
+    },
+    progressBarFill: {
+        height: '100%',
+        backgroundColor: '#EF4444',
+    },
+    alertBanner: {
         flexDirection: 'row',
+        alignItems: 'center',
+        gap: 14,
+        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+        borderWidth: 1,
+        borderColor: 'rgba(239, 68, 68, 0.3)',
+        borderRadius: 20,
+        padding: 16,
+    },
+    alertBannerTextWrap: {
+        flex: 1,
+    },
+    alertBannerTitle: {
+        color: '#EF4444',
+        fontSize: 15,
+        fontWeight: '900',
+    },
+    alertBannerDesc: {
+        color: '#FAFAFA',
+        fontSize: 13,
+        marginTop: 2,
+        fontWeight: '600',
+    },
+    feedSection: {
         gap: 12,
     },
-    timelineRail: {
-        width: 18,
+    feedContainer: {
+        backgroundColor: '#18181B',
+        borderRadius: 24,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: '#27272A',
+        gap: 16,
+    },
+    feedItem: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 12,
+    },
+    feedIconWrap: {
+        width: 32,
+        height: 32,
+        borderRadius: 10,
+        backgroundColor: '#27272A',
         alignItems: 'center',
+        justifyContent: 'center',
     },
-    timelineDot: {
-        width: 12,
-        height: 12,
-        borderRadius: 999,
-        backgroundColor: '#C84D61',
-        marginTop: 2,
-    },
-    timelineLine: {
-        width: 2,
+    feedContent: {
         flex: 1,
-        minHeight: 28,
-        backgroundColor: 'rgba(200,77,97,0.2)',
-        marginTop: 4,
+        borderBottomWidth: 1,
+        borderBottomColor: '#27272A',
+        paddingBottom: 16,
     },
-    timelineContent: {
-        flex: 1,
-        paddingBottom: 2,
-    },
-    timelineHeader: {
+    feedHeader: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        gap: 10,
+        marginBottom: 2,
     },
-    timelineTitle: {
-        flex: 1,
-        color: '#1D1D1F',
+    feedTitle: {
+        color: '#FAFAFA',
         fontSize: 14,
         fontWeight: '800',
     },
-    timelineTime: {
-        color: '#B85A6B',
+    feedTime: {
+        color: '#71717A',
         fontSize: 12,
-        fontWeight: '700',
-    },
-    timelineDetail: {
-        marginTop: 3,
-        color: '#8F8A8D',
-        fontSize: 13,
-        lineHeight: 18,
         fontWeight: '600',
     },
-    secondaryButton: {
-        minHeight: 54,
-        borderRadius: 999,
-        backgroundColor: 'rgba(255,255,255,0.96)',
+    feedDetail: {
+        color: '#A1A1AA',
+        fontSize: 13,
+        fontWeight: '600',
+    },
+    stickyFooter: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: 'rgba(9, 9, 11, 0.85)',
+        borderTopWidth: 1,
+        borderTopColor: '#27272A',
+        paddingHorizontal: 20,
+        paddingVertical: 16,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+    },
+    actionButtonSecondary: {
+        width: 54,
+        height: 54,
+        borderRadius: 27,
+        backgroundColor: '#27272A',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    actionButtonPrimary: {
+        flex: 1,
+        height: 54,
+        borderRadius: 27,
+        backgroundColor: '#22C55E', // Green for connected/sync
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
         gap: 8,
-        marginTop: 2,
     },
-    secondaryButtonText: {
-        color: '#C84D61',
-        fontSize: 15,
+    actionButtonPrimaryInactive: {
+        backgroundColor: '#EF4444', // Red to prompt pairing
+    },
+    actionButtonPrimaryText: {
+        color: '#FAFAFA',
+        fontSize: 16,
         fontWeight: '800',
     },
 });

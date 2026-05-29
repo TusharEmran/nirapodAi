@@ -44,18 +44,19 @@ export default function LoginScreen() {
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.heroCard}>
           <Text style={styles.title}>Sign in to Sentinel AI</Text>
+          <Text style={styles.subtitle}>Welcome back. Please enter your details.</Text>
         </View>
 
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <View style={styles.formCard}>
             <Text style={styles.fieldLabel}>Email or phone</Text>
             <View style={styles.inputShell}>
-              <MaterialCommunityIcons name="account-outline" size={20} color="#A46A76" />
+              <MaterialCommunityIcons name="account-outline" size={20} color="#A1A1AA" />
               <TextInput
                 value={identifier}
                 onChangeText={setIdentifier}
                 placeholder="you@example.com or +233..."
-                placeholderTextColor="#B89BA3"
+                placeholderTextColor="#71717A"
                 style={styles.input}
                 autoCapitalize="none"
                 keyboardType="default"
@@ -64,12 +65,12 @@ export default function LoginScreen() {
 
             <Text style={styles.fieldLabel}>Password</Text>
             <View style={styles.inputShell}>
-              <MaterialCommunityIcons name="lock-outline" size={20} color="#A46A76" />
+              <MaterialCommunityIcons name="lock-outline" size={20} color="#A1A1AA" />
               <TextInput
                 value={password}
                 onChangeText={setPassword}
                 placeholder="Enter password"
-                placeholderTextColor="#B89BA3"
+                placeholderTextColor="#71717A"
                 style={styles.input}
                 secureTextEntry
               />
@@ -101,123 +102,103 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#C84D61',
+    backgroundColor: '#09090B',
   },
   content: {
     flexGrow: 1,
-    padding: 18,
-    paddingTop: 56,
-    gap: 14,
+    padding: 20,
+    paddingTop: 60,
+    gap: 20,
     justifyContent: 'center',
   },
   heroCard: {
-    borderRadius: 30,
-    backgroundColor: 'rgba(255,255,255,0.98)',
-    padding: 18,
-    gap: 10,
-    shadowColor: '#7A2434',
-    shadowOpacity: 0.16,
-    shadowRadius: 22,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 10,
-  },
-  badgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  badgeIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#F7EDEF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  badgeText: {
-    color: '#B85A6B',
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
+    borderRadius: 24,
+    backgroundColor: '#18181B',
+    padding: 24,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#27272A',
   },
   title: {
-    color: '#1D1D1F',
-    fontSize: 32,
-    lineHeight: 36,
-    fontWeight: '900',
-    letterSpacing: -0.7,
+    color: '#FAFAFA',
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: '800',
+    letterSpacing: -0.5,
   },
   subtitle: {
-    color: '#71585F',
+    color: '#A1A1AA',
     fontSize: 15,
     lineHeight: 22,
-    fontWeight: '600',
+    fontWeight: '500',
   },
   formCard: {
-    borderRadius: 30,
-    backgroundColor: 'rgba(255,255,255,0.98)',
-    padding: 18,
-    gap: 10,
-    shadowColor: '#7A2434',
-    shadowOpacity: 0.14,
-    shadowRadius: 22,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 10,
+    borderRadius: 24,
+    backgroundColor: '#18181B',
+    padding: 24,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: '#27272A',
   },
   fieldLabel: {
-    color: '#1D1D1F',
+    color: '#FAFAFA',
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '700',
     marginTop: 4,
   },
   inputShell: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    minHeight: 56,
-    borderRadius: 18,
-    backgroundColor: '#F7F0F2',
-    paddingHorizontal: 14,
+    gap: 12,
+    minHeight: 52,
+    borderRadius: 16,
+    backgroundColor: '#09090B',
+    borderWidth: 1,
+    borderColor: '#27272A',
+    paddingHorizontal: 16,
   },
   input: {
     flex: 1,
-    color: '#1D1D1F',
+    color: '#FAFAFA',
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: '500',
   },
   primaryButton: {
-    minHeight: 56,
-    borderRadius: 18,
-    backgroundColor: '#C84D61',
+    minHeight: 52,
+    borderRadius: 16,
+    backgroundColor: '#FAFAFA',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 8,
+    marginTop: 12,
   },
   primaryButtonDisabled: {
     opacity: 0.7,
   },
   primaryButtonText: {
-    color: '#FFFFFF',
+    color: '#09090B',
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: '800',
   },
   errorText: {
-    color: '#B84A5A',
+    color: '#EF4444',
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '600',
     lineHeight: 18,
+    textAlign: 'center',
   },
   secondaryButton: {
     minHeight: 52,
-    borderRadius: 18,
-    backgroundColor: '#F7EDEF',
+    borderRadius: 16,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#27272A',
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 4,
   },
   secondaryButtonText: {
-    color: '#B84A5A',
+    color: '#FAFAFA',
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '600',
   },
 });

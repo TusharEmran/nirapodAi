@@ -44,7 +44,7 @@ export default function ProfileScreen() {
             <View style={styles.sectionCard}>
                 <View style={styles.sectionHeader}>
                     <Text style={styles.sectionTitle}>Account</Text>
-                    <MaterialCommunityIcons name="account-circle-outline" size={20} color="#C84D61" />
+                    <MaterialCommunityIcons name="account-circle-outline" size={20} color="#EF4444" />
                 </View>
 
                 <Pressable
@@ -53,10 +53,10 @@ export default function ProfileScreen() {
                     accessibilityRole="button"
                 >
                     <View style={styles.actionIconWrap}>
-                        <MaterialCommunityIcons name="account-edit-outline" size={20} color="#C84D61" />
+                        <MaterialCommunityIcons name="account-edit-outline" size={20} color="#EF4444" />
                     </View>
                     <Text style={styles.actionLabel}>Edit profile</Text>
-                    <MaterialCommunityIcons name="chevron-right" size={20} color="#C5A6AE" />
+                    <MaterialCommunityIcons name="chevron-right" size={20} color="#71717A" />
                 </Pressable>
 
                 {profileActions.map((action, index) => (
@@ -71,10 +71,10 @@ export default function ProfileScreen() {
                         accessibilityRole="button"
                     >
                         <View style={styles.actionIconWrap}>
-                            <MaterialCommunityIcons name={action.icon as never} size={20} color="#C84D61" />
+                            <MaterialCommunityIcons name={action.icon as never} size={20} color="#EF4444" />
                         </View>
                         <Text style={styles.actionLabel}>{action.label}</Text>
-                        <MaterialCommunityIcons name="chevron-right" size={20} color="#C5A6AE" />
+                        <MaterialCommunityIcons name="chevron-right" size={20} color="#71717A" />
                     </Pressable>
                 ))}
             </View>
@@ -82,7 +82,7 @@ export default function ProfileScreen() {
             <View style={styles.sectionCard}>
                 <View style={styles.sectionHeader}>
                     <Text style={styles.sectionTitle}>Emergency info</Text>
-                    <MaterialCommunityIcons name="alert-circle-outline" size={20} color="#C84D61" />
+                    <MaterialCommunityIcons name="alert-circle-outline" size={20} color="#EF4444" />
                 </View>
 
                 <View style={styles.infoBlock}>
@@ -97,7 +97,7 @@ export default function ProfileScreen() {
             </View>
 
             <Pressable style={styles.logoutButton} onPress={handleSignOut} accessibilityRole="button">
-                <MaterialCommunityIcons name="logout-variant" size={18} color="#C84D61" />
+                <MaterialCommunityIcons name="logout-variant" size={18} color="#EF4444" />
                 <Text style={styles.logoutText}>Sign out</Text>
             </Pressable>
         </ScrollView>
@@ -107,7 +107,7 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
     screen: {
         flex: 1,
-        backgroundColor: '#C84D61',
+        backgroundColor: '#09090B',
     },
     content: {
         flexGrow: 1,
@@ -118,23 +118,20 @@ const styles = StyleSheet.create({
     },
     headerCard: {
         borderRadius: 30,
-        backgroundColor: 'rgba(255,255,255,0.96)',
+        backgroundColor: '#18181B',
         paddingVertical: 28,
         paddingHorizontal: 20,
         alignItems: 'center',
         gap: 10,
-        shadowColor: '#7A2434',
-        shadowOpacity: 0.14,
-        shadowRadius: 20,
-        shadowOffset: { width: 0, height: 10 },
-        elevation: 8,
+        borderWidth: 1,
+        borderColor: '#27272A',
     },
     avatarRing: {
         width: 92,
         height: 92,
         borderRadius: 46,
         borderWidth: 6,
-        borderColor: 'rgba(200,77,97,0.12)',
+        borderColor: 'rgba(239, 68, 68, 0.1)',
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -142,7 +139,7 @@ const styles = StyleSheet.create({
         width: 72,
         height: 72,
         borderRadius: 36,
-        backgroundColor: '#C84D61',
+        backgroundColor: '#EF4444',
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -152,18 +149,18 @@ const styles = StyleSheet.create({
         borderRadius: 46,
     },
     avatarText: {
-        color: '#FFFFFF',
+        color: '#FAFAFA',
         fontSize: 22,
         fontWeight: '900',
         letterSpacing: 0.5,
     },
     name: {
-        color: '#1D1D1F',
+        color: '#FAFAFA',
         fontSize: 24,
         fontWeight: '900',
     },
     subtitle: {
-        color: '#8F6A73',
+        color: '#A1A1AA',
         fontSize: 13,
         fontWeight: '700',
     },
@@ -176,33 +173,30 @@ const styles = StyleSheet.create({
     statCard: {
         flex: 1,
         borderRadius: 20,
-        backgroundColor: '#F8EEF0',
+        backgroundColor: '#27272A',
         paddingVertical: 14,
         paddingHorizontal: 10,
         alignItems: 'center',
         gap: 2,
     },
     statValue: {
-        color: '#C84D61',
+        color: '#EF4444',
         fontSize: 18,
         fontWeight: '900',
     },
     statLabel: {
-        color: '#7D6A70',
+        color: '#A1A1AA',
         fontSize: 11,
         fontWeight: '700',
         textAlign: 'center',
     },
     sectionCard: {
         borderRadius: 26,
-        backgroundColor: 'rgba(255,255,255,0.96)',
+        backgroundColor: '#18181B',
         padding: 18,
         gap: 12,
-        shadowColor: '#7A2434',
-        shadowOpacity: 0.08,
-        shadowRadius: 16,
-        shadowOffset: { width: 0, height: 8 },
-        elevation: 5,
+        borderWidth: 1,
+        borderColor: '#27272A',
     },
     sectionHeader: {
         flexDirection: 'row',
@@ -211,7 +205,7 @@ const styles = StyleSheet.create({
         marginBottom: 2,
     },
     sectionTitle: {
-        color: '#1D1D1F',
+        color: '#FAFAFA',
         fontSize: 18,
         fontWeight: '900',
     },
@@ -221,10 +215,10 @@ const styles = StyleSheet.create({
         gap: 12,
         paddingVertical: 12,
         borderBottomWidth: 1,
-        borderBottomColor: 'rgba(200,77,97,0.08)',
+        borderBottomColor: '#27272A',
     },
     actionRowPressed: {
-        opacity: 0.8,
+        opacity: 0.6,
     },
     actionRowLast: {
         borderBottomWidth: 0,
@@ -234,31 +228,31 @@ const styles = StyleSheet.create({
         width: 38,
         height: 38,
         borderRadius: 19,
-        backgroundColor: '#F8EEF0',
+        backgroundColor: 'rgba(239, 68, 68, 0.1)',
         alignItems: 'center',
         justifyContent: 'center',
     },
     actionLabel: {
         flex: 1,
-        color: '#1D1D1F',
+        color: '#FAFAFA',
         fontSize: 14,
         fontWeight: '700',
     },
     infoBlock: {
         borderRadius: 18,
-        backgroundColor: '#F8EEF0',
+        backgroundColor: '#27272A',
         padding: 14,
         gap: 6,
     },
     infoLabel: {
-        color: '#8F6A73',
+        color: '#A1A1AA',
         fontSize: 12,
         fontWeight: '700',
         textTransform: 'uppercase',
         letterSpacing: 0.6,
     },
     infoValue: {
-        color: '#1D1D1F',
+        color: '#FAFAFA',
         fontSize: 14,
         fontWeight: '700',
         lineHeight: 20,
@@ -267,14 +261,16 @@ const styles = StyleSheet.create({
         marginTop: 4,
         minHeight: 54,
         borderRadius: 999,
-        backgroundColor: 'rgba(255,255,255,0.96)',
+        backgroundColor: '#18181B',
         alignItems: 'center',
         justifyContent: 'center',
         flexDirection: 'row',
         gap: 8,
+        borderWidth: 1,
+        borderColor: '#27272A',
     },
     logoutText: {
-        color: '#C84D61',
+        color: '#EF4444',
         fontSize: 15,
         fontWeight: '800',
     },

@@ -1,4 +1,5 @@
 import Constants from 'expo-constants';
+import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
 function getHostFromExpo() {
@@ -394,6 +395,7 @@ export async function addContact(token: string, payload: AddContactPayload) {
       body: JSON.stringify(payload),
     });
   } catch {
+    await queueOfflineRequest('/api/profile/contacts', 'POST', payload);
     throw authNetworkError();
   }
 
@@ -420,6 +422,7 @@ export async function updateContact(token: string, contactId: string, payload: U
       body: JSON.stringify(payload),
     });
   } catch {
+    await queueOfflineRequest(`/api/profile/contacts/${contactId}`, 'PUT', payload);
     throw authNetworkError();
   }
 
@@ -444,6 +447,7 @@ export async function deleteContact(token: string, contactId: string) {
       },
     });
   } catch {
+    await queueOfflineRequest(`/api/profile/contacts/${contactId}`, 'DELETE');
     throw authNetworkError();
   }
 
@@ -470,6 +474,7 @@ export async function updateProfile(token: string, payload: UpdateProfilePayload
       body: JSON.stringify(payload),
     });
   } catch {
+    await queueOfflineRequest('/api/profile', 'PUT', payload);
     throw authNetworkError();
   }
 
@@ -501,6 +506,9 @@ async function authedJsonRequest<T>(
       body: body ? JSON.stringify(body) : undefined,
     });
   } catch {
+    if (method !== 'GET') {
+      await queueOfflineRequest(path, method, body);
+    }
     throw authNetworkError();
   }
 
@@ -600,8 +608,119 @@ export async function uploadMediaFile(token: string, file: { uri: string; folder
   return body as UploadMediaResponse;
 }
 
+const OFFLINE_GENERAL_QUEUE_KEY = 'nirapodai.offline.general.queue';
+
+export async function queueOfflineRequest(path: string, method: string, body?: any) {
+  try {
+    const queueStr = await SecureStore.getItemAsync(OFFLINE_GENERAL_QUEUE_KEY);
+    const queue = queueStr ? JSON.parse(queueStr) : [];
+    queue.push({ path, method, body });
+    await SecureStore.setItemAsync(OFFLINE_GENERAL_QUEUE_KEY, JSON.stringify(queue));
+  } catch (error) {
+    console.error('Failed to queue offline request', error);
+  }
+}
+
+export async function syncOfflineRequests(token: string) {
+  try {
+    const queueStr = await SecureStore.getItemAsync(OFFLINE_GENERAL_QUEUE_KEY);
+    if (!queueStr) return;
+    
+    const queue = JSON.parse(queueStr);
+    if (queue.length === 0) return;
+
+    let pending = [...queue];
+
+    for (const req of queue) {
+      try {
+        await fetch(`${API_BASE_URL}${req.path}`, {
+          method: req.method,
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: req.body ? (typeof req.body === 'string' ? req.body : JSON.stringify(req.body)) : undefined,
+        });
+        pending.shift();
+      } catch (error: any) {
+        break; // Network error, stop syncing
+      }
+    }
+
+    if (pending.length > 0) {
+      await SecureStore.setItemAsync(OFFLINE_GENERAL_QUEUE_KEY, JSON.stringify(pending));
+    } else {
+      await SecureStore.deleteItemAsync(OFFLINE_GENERAL_QUEUE_KEY);
+    }
+  } catch (error) {
+    console.error('Failed to sync offline general requests', error);
+  }
+}
+
+const OFFLINE_SOS_QUEUE_KEY = 'nirapodai.offline.sos.queue';
+
+export async function queueOfflineSosRequest(payload: EmergencySosPayload) {
+  try {
+    const queueStr = await SecureStore.getItemAsync(OFFLINE_SOS_QUEUE_KEY);
+    const queue: EmergencySosPayload[] = queueStr ? JSON.parse(queueStr) : [];
+    queue.push(payload);
+    await SecureStore.setItemAsync(OFFLINE_SOS_QUEUE_KEY, JSON.stringify(queue));
+  } catch (error) {
+    console.error('Failed to queue offline SOS request', error);
+  }
+}
+
+export async function syncOfflineSosRequests(token: string) {
+  try {
+    const queueStr = await SecureStore.getItemAsync(OFFLINE_SOS_QUEUE_KEY);
+    if (!queueStr) return;
+    
+    const queue: EmergencySosPayload[] = JSON.parse(queueStr);
+    if (queue.length === 0) return;
+
+    let pending = [...queue];
+
+    for (const payload of queue) {
+      try {
+        await authedJsonRequest<EmergencySosResponse>('/api/emergency/sos', token, 'POST', payload);
+        pending.shift();
+      } catch (error: any) {
+        if (error?.message?.includes('Unable to reach the auth server')) {
+          // Still offline, stop syncing
+          break;
+        }
+        // If it's a 4xx or 5xx, we might discard it so it doesn't block forever
+        pending.shift();
+      }
+    }
+
+    if (pending.length > 0) {
+      await SecureStore.setItemAsync(OFFLINE_SOS_QUEUE_KEY, JSON.stringify(pending));
+    } else {
+      await SecureStore.deleteItemAsync(OFFLINE_SOS_QUEUE_KEY);
+    }
+  } catch (error) {
+    console.error('Failed to sync offline SOS requests', error);
+  }
+}
+
 export async function sendEmergencySOS(token: string, payload: EmergencySosPayload) {
-  return authedJsonRequest<EmergencySosResponse>('/api/emergency/sos', token, 'POST', payload);
+  try {
+    return await authedJsonRequest<EmergencySosResponse>('/api/emergency/sos', token, 'POST', payload);
+  } catch (error: any) {
+    if (error?.message?.includes('Unable to reach the auth server')) {
+      await queueOfflineSosRequest(payload);
+      return {
+        success: true,
+        message: 'Saved offline. Alert will be sent when connection restores.',
+        defaultMessage: 'Offline Mode',
+        locationUrl: '',
+        notifiedCount: 0,
+        skippedCount: 0,
+      } as EmergencySosResponse;
+    }
+    throw error;
+  }
 }
 
 export async function fetchChatThreads(token: string) {

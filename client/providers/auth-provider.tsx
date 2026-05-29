@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { clearAuthToken, loadAuthToken, saveAuthToken } from '@/lib/auth-storage';
-import { ApiError, fetchCurrentUser, type AuthUser } from '@/lib/auth-api';
+import { ApiError, fetchCurrentUser, syncOfflineRequests, syncOfflineSosRequests, type AuthUser } from '@/lib/auth-api';
 
 type AuthContextValue = {
     user: AuthUser | null;
@@ -9,6 +9,7 @@ type AuthContextValue = {
     signIn: (token: string, user: AuthUser) => Promise<void>;
     signOut: () => Promise<void>;
     refreshSession: () => Promise<void>;
+    updateUser: (partialUser: Partial<AuthUser>) => void;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -27,6 +28,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
             const response = await fetchCurrentUser(token);
             setUser(response.user);
+            // Attempt to push any offline alerts and queued requests
+            void syncOfflineSosRequests(token);
+            void syncOfflineRequests(token);
         } catch (error) {
             if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
                 await clearAuthToken();
@@ -61,6 +65,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     const response = await fetchCurrentUser(storedToken);
                     if (mounted) {
                         setUser(response.user);
+                        // Attempt to push any offline alerts and queued requests
+                        void syncOfflineSosRequests(storedToken);
+                        void syncOfflineRequests(storedToken);
                     }
                 } catch (error) {
                     if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
@@ -104,6 +111,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 setUser(null);
             },
             refreshSession,
+            updateUser: (partialUser) => {
+                setUser((prev) => (prev ? { ...prev, ...partialUser } : null));
+            },
         }),
         [isReady, refreshSession, token, user],
     );

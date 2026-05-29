@@ -6,16 +6,12 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 import { fetchContacts, type EmergencyContact } from '@/lib/auth-api';
 import { useAuth } from '@/providers/auth-provider';
 
-const quickActions = [
-    { id: '1', label: 'Share location', icon: 'map-marker-radius-outline' },
-] as const;
-
 export default function CommunityScreen() {
     const router = useRouter();
-    const { token } = useAuth();
+    const { token, user } = useAuth();
     const [locationShared, setLocationShared] = useState(false);
     const [loading, setLoading] = useState(true);
-    const [contacts, setContacts] = useState<EmergencyContact[]>([]);
+    const [contacts, setContacts] = useState<EmergencyContact[]>(user?.emergencyContacts || []);
     const [searchQuery, setSearchQuery] = useState('');
 
     useEffect(() => {
@@ -32,10 +28,8 @@ export default function CommunityScreen() {
                 if (mounted) {
                     setContacts(response.contacts);
                 }
-            } catch {
-                if (mounted) {
-                    setContacts([]);
-                }
+            } catch (error) {
+                // Keep initial fallback
             } finally {
                 if (mounted) {
                     setLoading(false);
@@ -50,35 +44,37 @@ export default function CommunityScreen() {
         };
     }, [token]);
 
-    const visibleContacts = useMemo(() => {
+    useEffect(() => {
+        if (user?.emergencyContacts) {
+            setContacts(user.emergencyContacts);
+        }
+    }, [user?.emergencyContacts]);
+
+    const { appUsers, visibleContacts } = useMemo(() => {
         const query = searchQuery.trim().toLowerCase();
+        
         const baseContacts = contacts.length > 0 ? [...contacts].sort((a, b) => {
             const timeA = new Date(a.updatedAt || 0).getTime();
             const timeB = new Date(b.updatedAt || 0).getTime();
             return timeB - timeA;
         }) : [];
 
-        if (!query) {
-            return baseContacts;
-        }
+        const filtered = query 
+            ? baseContacts.filter((contact) => {
+                const haystack = [contact.name, contact.phone, contact.relationship].join(' ').toLowerCase();
+                return haystack.includes(query);
+            })
+            : baseContacts;
 
-        return baseContacts.filter((contact) => {
-            const haystack = [contact.name, contact.phone, contact.relationship, contact.isAppUser ? 'app user' : 'not on app']
-                .join(' ')
-                .toLowerCase();
-
-            return haystack.includes(query);
-        });
+        return {
+            appUsers: baseContacts.filter(c => c.isAppUser),
+            visibleContacts: filtered,
+        };
     }, [searchQuery, contacts]);
-
-    const unreadCount = useMemo(
-        () => contacts.filter((contact) => contact.isAppUser).length,
-        [contacts],
-    );
 
     const handleContactMessage = (contact: EmergencyContact) => {
         if (!contact.isAppUser) {
-            Alert.alert('Not on the app', `${contact.name} is not a Her Shield user yet.`);
+            Alert.alert('Not on the app', `${contact.name} is not a Sentinel AI user yet. Invite them to secure your communications.`);
             return;
         }
 
@@ -87,267 +83,282 @@ export default function CommunityScreen() {
 
     const handleShareLocation = () => {
         setLocationShared(true);
+        setTimeout(() => setLocationShared(false), 5000); // Reset after 5s for demo
     };
 
     return (
-        <ScrollView style={styles.screen} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.screen}>
+            {/* Minimal Dashboard Header */}
             <View style={styles.headerRow}>
                 <View>
-                    <Text style={styles.kicker}>Messages</Text>
-                    <Text style={styles.title}>Stay connected</Text>
+                    <Text style={styles.kicker}>Secure Comms</Text>
+                    <Text style={styles.title}>Messages</Text>
                 </View>
-                <View style={styles.headerIcon}>
-                    <MaterialCommunityIcons name="message-text-outline" size={22} color="#C84D61" />
-                </View>
+                <Pressable style={styles.headerIcon} onPress={handleShareLocation}>
+                    <MaterialCommunityIcons name={locationShared ? 'check' : 'map-marker-radius'} size={22} color={locationShared ? '#10B981' : '#FAFAFA'} />
+                </Pressable>
             </View>
 
-            <View style={styles.searchBar}>
-                <MaterialCommunityIcons name="magnify" size={20} color="#A46A74" />
-                <TextInput
-                    value={searchQuery}
-                    onChangeText={setSearchQuery}
-                    placeholder="Search conversations"
-                    placeholderTextColor="#A46A74"
-                    style={styles.searchInput}
-                />
-            </View>
-
-            <View style={styles.quickRow}>
-                {quickActions.map((action) => (
-                    <Pressable
-                        key={action.id}
-                        onPress={action.id === '1' ? handleShareLocation : undefined}
-                        style={({ pressed }: { pressed: boolean }) => [
-                            styles.quickAction,
-                            pressed && styles.quickActionPressed,
-                            action.id === '1' && locationShared && styles.quickActionActive,
-                        ]}
-                    >
-                        <View style={styles.quickIconWrap}>
-                            <MaterialCommunityIcons name={action.icon as never} size={20} color="#C84D61" />
-                        </View>
-                        <Text style={styles.quickLabel}>{action.label}</Text>
-                    </Pressable>
-                ))}
-            </View>
-
-            {locationShared ? (
+            {locationShared && (
                 <View style={styles.locationBanner}>
-                    <MaterialCommunityIcons name="check-circle-outline" size={20} color="#C84D61" />
-                    <Text style={styles.locationBannerText}>Live location sent to all contacts.</Text>
+                    <MaterialCommunityIcons name="broadcast" size={20} color="#10B981" />
+                    <Text style={styles.locationBannerText}>Live location broadcasting to active contacts...</Text>
                 </View>
-            ) : null}
+            )}
 
-            <View style={styles.sectionCard}>
-                <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>All contacts</Text>
-                    <View style={styles.sectionMetaWrap}>
-                        {unreadCount > 0 ? (
-                            <View style={styles.unreadBadge}>
-                                <Text style={styles.unreadBadgeText}>{unreadCount}</Text>
-                            </View>
-                        ) : null}
-                        <Text style={styles.sectionMeta}>{loading ? 'Loading...' : `${visibleContacts.length} contacts`}</Text>
-                    </View>
-                </View>
-
-                {visibleContacts.map((contact) => (
-                    <Pressable
-                        key={contact.id}
-                        onPress={() => handleContactMessage(contact)}
-                        style={({ pressed }: { pressed: boolean }) => [
-                            styles.chatRow,
-                            pressed && styles.chatRowPressed,
-                        ]}
-                    >
-                        <View style={[styles.avatar, { backgroundColor: contact.avatar }]}>
-                            <Text style={styles.avatarText}>{contact.initials}</Text>
-                        </View>
-
-                        <View style={styles.chatBody}>
-                            <View style={styles.chatTopLine}>
-                                <Text style={styles.chatName}>{contact.name}</Text>
-                                <Text style={styles.chatTime}>{contact.isAppUser ? 'App user' : 'Not on app'}</Text>
-                            </View>
-                            <Text style={styles.chatPreview} numberOfLines={1}>
-                                {contact.relationship || contact.phone}
-                            </Text>
-                        </View>
-
-                        <View style={[styles.contactStatePill, contact.isAppUser ? styles.contactStatePillActive : styles.contactStatePillMuted]}>
-                            <Text style={styles.contactStatePillText}>{contact.isAppUser ? 'Message' : 'Unavailable'}</Text>
-                        </View>
-                    </Pressable>
-                ))}
-
-                {!loading && visibleContacts.length === 0 ? (
-                    <View style={styles.emptyState}>
-                        <MaterialCommunityIcons name="account-group-outline" size={22} color="#A46A74" />
-                        <Text style={styles.emptyTitle}>{searchQuery.trim() ? 'No contacts found' : 'No saved contacts yet'}</Text>
-                        <Text style={styles.emptyText}>{searchQuery.trim() ? 'Try a different name, phone, or relationship.' : 'Add contacts first so they appear here.'}</Text>
+            <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} stickyHeaderIndices={[1]}>
+                
+                {/* Active Network (Horizontal Scroll) */}
+                {appUsers.length > 0 && !searchQuery ? (
+                    <View style={styles.activeNetworkSection}>
+                        <Text style={styles.sectionTitleSmall}>Secure Network</Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.activeNetworkScroll}>
+                            {appUsers.map((user) => (
+                                <Pressable key={user.id} style={styles.activeUserNode} onPress={() => handleContactMessage(user)}>
+                                    <View style={[styles.activeAvatar, { backgroundColor: user.avatar }]}>
+                                        <Text style={styles.activeAvatarText}>{user.initials}</Text>
+                                        <View style={styles.onlineDot} />
+                                    </View>
+                                    <Text style={styles.activeUserName} numberOfLines={1}>{user.name.split(' ')[0]}</Text>
+                                </Pressable>
+                            ))}
+                        </ScrollView>
                     </View>
                 ) : null}
-            </View>
-        </ScrollView>
+
+                {/* Sticky Search Bar */}
+                <View style={styles.searchWrapper}>
+                    <View style={styles.searchBar}>
+                        <MaterialCommunityIcons name="magnify" size={20} color="#71717A" />
+                        <TextInput
+                            value={searchQuery}
+                            onChangeText={setSearchQuery}
+                            placeholder="Search contacts..."
+                            placeholderTextColor="#71717A"
+                            style={styles.searchInput}
+                        />
+                    </View>
+                </View>
+
+                {/* Contacts List */}
+                <View style={styles.contactsList}>
+                    {visibleContacts.map((contact) => (
+                        <Pressable
+                            key={contact.id}
+                            onPress={() => handleContactMessage(contact)}
+                            style={({ pressed }) => [
+                                styles.chatRow,
+                                pressed && styles.chatRowPressed,
+                                !contact.isAppUser && styles.chatRowMuted
+                            ]}
+                        >
+                            <View style={[styles.avatar, { backgroundColor: contact.avatar }]}>
+                                <Text style={styles.avatarText}>{contact.initials}</Text>
+                            </View>
+
+                            <View style={styles.chatBody}>
+                                <View style={styles.chatTopLine}>
+                                    <Text style={[styles.chatName, !contact.isAppUser && styles.chatNameMuted]}>
+                                        {contact.name}
+                                    </Text>
+                                    {contact.isAppUser ? (
+                                        <MaterialCommunityIcons name="shield-lock" size={14} color="#10B981" />
+                                    ) : (
+                                        <Text style={styles.inviteText}>Invite</Text>
+                                    )}
+                                </View>
+                                <Text style={styles.chatPreview} numberOfLines={1}>
+                                    {contact.relationship || contact.phone}
+                                </Text>
+                            </View>
+                        </Pressable>
+                    ))}
+
+                    {!loading && visibleContacts.length === 0 ? (
+                        <View style={styles.emptyState}>
+                            <MaterialCommunityIcons name="account-search-outline" size={32} color="#27272A" />
+                            <Text style={styles.emptyTitle}>{searchQuery.trim() ? 'No contacts found' : 'No directory data'}</Text>
+                            <Text style={styles.emptyText}>{searchQuery.trim() ? 'Try a different search query.' : 'Add emergency contacts first.'}</Text>
+                        </View>
+                    ) : null}
+                </View>
+            </ScrollView>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
     screen: {
         flex: 1,
-        backgroundColor: '#C84D61',
-    },
-    content: {
-        flexGrow: 1,
-        padding: 20,
-        paddingBottom: 32,
-        gap: 16,
-    },
-    title: {
-        color: '#FFFFFF',
-        fontSize: 30,
-        fontWeight: '900',
-    },
-    kicker: {
-        color: 'rgba(255,255,255,0.8)',
-        fontSize: 13,
-        fontWeight: '700',
-        letterSpacing: 0.8,
-        textTransform: 'uppercase',
-        marginBottom: 4,
+        backgroundColor: '#09090B',
+        paddingTop: 48,
     },
     headerRow: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        marginBottom: 4,
+        paddingHorizontal: 20,
+        paddingBottom: 16,
+    },
+    title: {
+        color: '#FAFAFA',
+        fontSize: 28,
+        fontWeight: '900',
+        letterSpacing: -0.5,
+    },
+    kicker: {
+        color: '#10B981', // Secure Green
+        fontSize: 12,
+        fontWeight: '800',
+        letterSpacing: 1.2,
+        textTransform: 'uppercase',
+        marginBottom: 2,
     },
     headerIcon: {
         width: 48,
         height: 48,
-        borderRadius: 16,
-        backgroundColor: 'rgba(255,255,255,0.92)',
+        borderRadius: 24,
+        backgroundColor: '#18181B',
+        borderWidth: 1,
+        borderColor: '#27272A',
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    locationBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+        borderWidth: 1,
+        borderColor: 'rgba(16, 185, 129, 0.3)',
+        marginHorizontal: 20,
+        marginBottom: 16,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderRadius: 16,
+    },
+    locationBannerText: {
+        flex: 1,
+        color: '#FAFAFA',
+        fontSize: 13,
+        fontWeight: '700',
+    },
+    content: {
+        paddingBottom: 40,
+    },
+    activeNetworkSection: {
+        paddingBottom: 20,
+    },
+    sectionTitleSmall: {
+        color: '#71717A',
+        fontSize: 12,
+        fontWeight: '800',
+        textTransform: 'uppercase',
+        letterSpacing: 1,
+        paddingHorizontal: 20,
+        marginBottom: 12,
+    },
+    activeNetworkScroll: {
+        paddingHorizontal: 16,
+        gap: 16,
+    },
+    activeUserNode: {
+        alignItems: 'center',
+        width: 64,
+        gap: 6,
+    },
+    activeAvatar: {
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 2,
+        borderColor: '#18181B', // Dark outline
+    },
+    activeAvatarText: {
+        color: '#FAFAFA',
+        fontSize: 20,
+        fontWeight: '900',
+    },
+    onlineDot: {
+        position: 'absolute',
+        bottom: 0,
+        right: 0,
+        width: 16,
+        height: 16,
+        borderRadius: 8,
+        backgroundColor: '#10B981',
+        borderWidth: 3,
+        borderColor: '#09090B',
+    },
+    activeUserName: {
+        color: '#FAFAFA',
+        fontSize: 12,
+        fontWeight: '600',
+        textAlign: 'center',
+    },
+    searchWrapper: {
+        backgroundColor: '#09090B',
+        paddingHorizontal: 20,
+        paddingBottom: 16,
+        paddingTop: 8,
     },
     searchBar: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
-        backgroundColor: 'rgba(255,255,255,0.92)',
-        borderRadius: 18,
+        backgroundColor: '#18181B',
+        borderWidth: 1,
+        borderColor: '#27272A',
+        borderRadius: 20,
         paddingHorizontal: 16,
-        minHeight: 54,
+        height: 52,
     },
     searchInput: {
         flex: 1,
-        color: '#1D1D1F',
-        fontSize: 14,
-        fontWeight: '600',
+        color: '#FAFAFA',
+        fontSize: 15,
+        fontWeight: '500',
     },
-    quickRow: {
-        flexDirection: 'row',
+    contactsList: {
+        paddingHorizontal: 20,
         gap: 12,
-    },
-    quickAction: {
-        flex: 1,
-        backgroundColor: 'rgba(255,255,255,0.18)',
-        borderRadius: 20,
-        paddingVertical: 14,
-        paddingHorizontal: 10,
-        alignItems: 'center',
-        gap: 8,
-    },
-    quickActionPressed: {
-        opacity: 0.82,
-    },
-    quickActionActive: {
-        backgroundColor: 'rgba(255,255,255,0.28)',
-    },
-    quickIconWrap: {
-        width: 38,
-        height: 38,
-        borderRadius: 19,
-        backgroundColor: '#FFFFFF',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    quickLabel: {
-        color: '#FFFFFF',
-        fontSize: 12,
-        fontWeight: '800',
-        textAlign: 'center',
-        lineHeight: 16,
-    },
-    sectionCard: {
-        width: '100%',
-        borderRadius: 28,
-        backgroundColor: 'rgba(255,255,255,0.95)',
-        padding: 18,
-        gap: 14,
-    },
-    sectionHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-    },
-    sectionTitle: {
-        color: '#1D1D1F',
-        fontSize: 18,
-        fontWeight: '900',
-    },
-    sectionMeta: {
-        color: '#A46A74',
-        fontSize: 12,
-        fontWeight: '700',
-    },
-    sectionMetaWrap: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-    },
-    locationBanner: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10,
-        backgroundColor: 'rgba(255,255,255,0.95)',
-        borderRadius: 18,
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-    },
-    locationBannerText: {
-        flex: 1,
-        color: '#1D1D1F',
-        fontSize: 13,
-        fontWeight: '700',
-        lineHeight: 18,
     },
     chatRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 12,
-        paddingVertical: 8,
-        paddingHorizontal: 10,
-        borderRadius: 20,
+        gap: 14,
+        backgroundColor: '#18181B',
+        paddingVertical: 14,
+        paddingHorizontal: 16,
+        borderRadius: 24,
+        borderWidth: 1,
+        borderColor: '#27272A',
     },
     chatRowPressed: {
-        opacity: 0.85,
+        transform: [{ scale: 0.98 }],
+        opacity: 0.8,
+    },
+    chatRowMuted: {
+        backgroundColor: '#09090B',
+        borderColor: '#18181B',
     },
     avatar: {
-        width: 46,
-        height: 46,
-        borderRadius: 23,
+        width: 48,
+        height: 48,
+        borderRadius: 24,
         alignItems: 'center',
         justifyContent: 'center',
     },
     avatarText: {
-        color: '#C84D61',
+        color: '#FAFAFA',
         fontSize: 18,
         fontWeight: '900',
     },
     chatBody: {
         flex: 1,
-        gap: 4,
+        gap: 2,
     },
     chatTopLine: {
         flexDirection: 'row',
@@ -355,71 +366,40 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
     },
     chatName: {
-        color: '#1D1D1F',
-        fontSize: 15,
-        fontWeight: '900',
-    },
-    chatTime: {
-        color: '#A46A74',
-        fontSize: 12,
-        fontWeight: '700',
-    },
-    chatPreview: {
-        color: '#7D6A70',
-        fontSize: 14,
-        lineHeight: 20,
-        fontWeight: '600',
-    },
-    contactStatePill: {
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 999,
-    },
-    contactStatePillActive: {
-        backgroundColor: '#C84D61',
-    },
-    contactStatePillMuted: {
-        backgroundColor: 'rgba(168, 106, 116, 0.14)',
-    },
-    contactStatePillText: {
-        color: '#FFFFFF',
-        fontSize: 11,
+        color: '#FAFAFA',
+        fontSize: 16,
         fontWeight: '800',
     },
-    unreadBadge: {
-        minWidth: 26,
-        height: 26,
-        borderRadius: 13,
-        paddingHorizontal: 8,
-        backgroundColor: '#C84D61',
-        alignItems: 'center',
-        justifyContent: 'center',
+    chatNameMuted: {
+        color: '#A1A1AA',
     },
-    unreadBadgeText: {
-        color: '#FFFFFF',
+    inviteText: {
+        color: '#71717A',
         fontSize: 12,
-        fontWeight: '900',
+        fontWeight: '700',
+        textTransform: 'uppercase',
+    },
+    chatPreview: {
+        color: '#71717A',
+        fontSize: 13,
+        fontWeight: '500',
     },
     emptyState: {
-        marginTop: 8,
-        paddingVertical: 20,
-        paddingHorizontal: 16,
-        borderRadius: 20,
-        backgroundColor: 'rgba(255,255,255,0.7)',
+        paddingVertical: 40,
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 6,
+        gap: 8,
     },
     emptyTitle: {
-        color: '#1D1D1F',
-        fontSize: 15,
-        fontWeight: '900',
+        color: '#FAFAFA',
+        fontSize: 16,
+        fontWeight: '800',
+        marginTop: 8,
     },
     emptyText: {
-        color: '#A46A74',
-        fontSize: 12,
+        color: '#71717A',
+        fontSize: 13,
         fontWeight: '600',
         textAlign: 'center',
-        lineHeight: 18,
     },
 });

@@ -1,8 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Location from 'expo-location';
+import * as MediaLibrary from 'expo-media-library';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { sendEmergencySOS } from '@/lib/auth-api';
 import { useAuth } from '@/providers/auth-provider';
@@ -34,6 +36,18 @@ export default function EmergencyScreen() {
         new Animated.Value(0),
     ]).current;
 
+    const cameraRef = useRef<any>(null);
+    const isCapturingRef = useRef(false);
+    const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+    const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions({ writeOnly: true });
+    const [cameraFacing, setCameraFacing] = useState<'back' | 'front'>('back');
+    const [cameraReady, setCameraReady] = useState(false);
+
+    useEffect(() => {
+        void requestCameraPermission();
+        void requestMediaPermission();
+    }, []);
+
     const latitude = Number(params.latitude);
     const longitude = Number(params.longitude);
 
@@ -60,6 +74,40 @@ export default function EmergencyScreen() {
 
         return () => clearInterval(timer);
     }, []);
+
+    useEffect(() => {
+        let isStale = false;
+
+        const capturePhoto = async () => {
+            if (countdown > 0 && !hasSentSosRef.current && cameraRef.current && cameraReady && cameraPermission?.granted && mediaPermission?.granted) {
+                if (isCapturingRef.current) return;
+                isCapturingRef.current = true;
+                
+                try {
+                    // quality 0.3 for faster capture and processing, silent shutter
+                    const photo = await cameraRef.current.takePictureAsync({ quality: 0.3, shutterSound: false });
+                    if (photo?.uri) {
+                        await MediaLibrary.saveToLibraryAsync(photo.uri);
+                        setCameraReady(false);
+                        // Delay camera switch slightly to allow hardware to reset
+                        setTimeout(() => {
+                            setCameraFacing(prev => prev === 'back' ? 'front' : 'back');
+                        }, 300);
+                    }
+                } catch (e) {
+                    // Ignore capture errors during rapid camera switching
+                } finally {
+                    isCapturingRef.current = false;
+                }
+            }
+        };
+
+        void capturePhoto();
+
+        return () => {
+            isStale = true;
+        };
+    }, [countdown, cameraPermission?.granted, mediaPermission?.granted, cameraReady]);
 
     useEffect(() => {
         if (countdown !== 0 || hasSentSosRef.current) {
@@ -176,16 +224,29 @@ export default function EmergencyScreen() {
 
     return (
         <View style={styles.screen}>
-            <View style={styles.topBar}>
-                <Pressable
-                    onPress={() => router.replace('/(tabs)')}
-                    style={styles.backButton}
-                    accessibilityRole="button"
-                    accessibilityLabel="Go back"
-                >
-                    <MaterialCommunityIcons name="chevron-left" size={28} color="#FFFFFF" />
-                </Pressable>
-            </View>
+            {cameraPermission?.granted ? (
+                <View style={{ position: 'absolute', top: -10000, left: 0, width: 400, height: 400 }}>
+                    <CameraView
+                        ref={cameraRef}
+                        facing={cameraFacing}
+                        style={{ flex: 1 }}
+                        onCameraReady={() => setCameraReady(true)}
+                    />
+                </View>
+            ) : null}
+            <View 
+                style={[styles.contentContainer, { flex: 1, width: '100%' }]}
+            >
+                <View style={styles.topBar}>
+                    <Pressable
+                        onPress={() => router.replace('/(tabs)')}
+                        style={styles.backButton}
+                        accessibilityRole="button"
+                        accessibilityLabel="Go back"
+                    >
+                        <MaterialCommunityIcons name="chevron-left" size={28} color="#FAFAFA" />
+                    </Pressable>
+                </View>
 
             <View style={styles.circleSection}>
                 <View style={styles.contactRing}>
@@ -196,10 +257,10 @@ export default function EmergencyScreen() {
 
                     {/* Icons placed on the orbit ring using trig-friendly offsets */}
                     <View style={[styles.orbitIcon, { top: RING - 5 - 14, left: RING - 105 - 14 }]}>
-                        <MaterialCommunityIcons name="map-marker" size={28} color="#FFFFFF" />
+                        <MaterialCommunityIcons name="map-marker" size={20} color="#EF4444" />
                     </View>
                     <View style={[styles.orbitIcon, { top: RING + 90 - 10, left: RING + 70 - 10 }]}>
-                        <MaterialCommunityIcons name="chat" size={20} color="#FFFFFF" />
+                        <MaterialCommunityIcons name="chat" size={18} color="#EF4444" />
                     </View>
 
                     {contacts.map((c) => (
@@ -224,7 +285,7 @@ export default function EmergencyScreen() {
             <View style={styles.infoList}>
                 <Animated.View style={[styles.infoRow, infoRowStyle(infoRowAnimations[0])]}>
                     <View style={styles.checkCircle}>
-                        <MaterialCommunityIcons name="check" size={15} color="#C84D61" />
+                        <MaterialCommunityIcons name="check" size={16} color="#10B981" />
                     </View>
                     <Text style={styles.infoText}>
                         Your contacts have been informed you are in danger
@@ -233,14 +294,14 @@ export default function EmergencyScreen() {
 
                 <Animated.View style={[styles.infoRow, infoRowStyle(infoRowAnimations[1])]}>
                     <View style={styles.checkCircle}>
-                        <MaterialCommunityIcons name="check" size={15} color="#C84D61" />
+                        <MaterialCommunityIcons name="check" size={16} color="#10B981" />
                     </View>
                     <Text style={styles.infoText}>You are sharing your live location</Text>
                 </Animated.View>
 
                 <Animated.View style={[styles.infoRow, infoRowStyle(infoRowAnimations[2])]}>
                     <View style={styles.checkCircle}>
-                        <MaterialCommunityIcons name="check" size={15} color="#C84D61" />
+                        <MaterialCommunityIcons name="check" size={16} color="#10B981" />
                     </View>
                     <Text style={styles.infoText}>Authorities will contact you soon</Text>
                 </Animated.View>
@@ -255,6 +316,7 @@ export default function EmergencyScreen() {
             </Pressable>
 
             {sendError ? <Text style={styles.errorText}>{sendError}</Text> : null}
+            </View>
         </View>
     );
 }
@@ -262,10 +324,12 @@ export default function EmergencyScreen() {
 const styles = StyleSheet.create({
     screen: {
         flex: 1,
-        backgroundColor: '#C84D61',
-        paddingTop: 45,
+        backgroundColor: '#09090B',
+    },
+    contentContainer: {
+        paddingTop: 40, // Reduced from 54
         paddingHorizontal: 20,
-        paddingBottom: 24,
+        paddingBottom: 20, // Reduced padding
         alignItems: 'center',
     },
     topBar: {
@@ -275,120 +339,148 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     backButton: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
+        width: 44,
+        height: 44,
+        borderRadius: 22,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: 'rgba(255,255,255,0.12)',
+        backgroundColor: '#18181B',
+        borderWidth: 1,
+        borderColor: '#27272A',
     },
     circleSection: {
         width: '100%',
         alignItems: 'center',
-        marginTop: 2,
+        marginTop: 10,
     },
     contactRing: {
-        width: 280,
-        height: 280,
+        width: 300,
+        height: 300,
         alignItems: 'center',
         justifyContent: 'center',
         position: 'relative',
     },
     contactOrbit: {
         position: 'absolute',
-        width: 204,
-        height: 204,
-        borderRadius: 999,
-        borderWidth: 3,
-        borderColor: 'rgba(255,255,255,0.32)',
+        width: 220,
+        height: 220,
+        borderRadius: 110,
+        borderWidth: 2,
+        borderColor: 'rgba(239, 68, 68, 0.4)',
         borderStyle: 'dashed',
     },
     contactCenter: {
-        width: 126,
-        height: 126,
-        borderRadius: 63,
-        backgroundColor: '#FFFFFF',
+        width: 140,
+        height: 140,
+        borderRadius: 70,
+        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+        borderWidth: 4,
+        borderColor: '#EF4444',
         alignItems: 'center',
         justifyContent: 'center',
+        shadowColor: '#EF4444',
+        shadowOpacity: 0.8,
+        shadowRadius: 20,
+        shadowOffset: { width: 0, height: 0 },
+        elevation: 15,
     },
     countdown: {
-        color: '#B85A6B',
-        fontSize: 68,
-        fontWeight: '700',
-        lineHeight: 70,
+        color: '#FAFAFA',
+        fontSize: 76,
+        fontWeight: '900',
+        lineHeight: 82,
     },
     orbitIcon: {
         position: 'absolute',
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: '#18181B',
+        borderWidth: 2,
+        borderColor: '#EF4444',
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     contactAvatar: {
         position: 'absolute',
-        backgroundColor: '#FFFFFF',
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.78)',
+        backgroundColor: '#18181B',
+        borderWidth: 2,
+        borderColor: '#27272A',
     },
     infoList: {
         width: '100%',
-        gap: 14,
-        marginTop: 8,
+        gap: 10, // Reduced from 16
+        marginTop: 12, // Reduced from 20
         paddingHorizontal: 8,
     },
     infoRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 10,
+        gap: 12,
+        backgroundColor: '#18181B',
+        padding: 12, // Reduced from 16
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: '#27272A',
     },
     checkCircle: {
-        width: 20,
-        height: 20,
-        borderRadius: 10,
-        backgroundColor: '#FFFFFF',
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        backgroundColor: 'rgba(16, 185, 129, 0.2)',
+        borderWidth: 1,
+        borderColor: '#10B981',
         alignItems: 'center',
         justifyContent: 'center',
     },
     infoText: {
         flex: 1,
-        color: '#FFFFFF',
+        color: '#FAFAFA',
         fontSize: 14,
-        fontWeight: '800',
-        lineHeight: 19,
+        fontWeight: '700',
+        lineHeight: 20,
     },
     callButton: {
-        marginTop: 26,
+        marginTop: 20, // Reduced from 32
         width: '100%',
-        maxWidth: 210,
-        minHeight: 52,
+        minHeight: 52, // Reduced from 56
         borderRadius: 999,
-        backgroundColor: '#FFFFFF',
+        backgroundColor: '#EF4444',
         alignItems: 'center',
         justifyContent: 'center',
+        shadowColor: '#EF4444',
+        shadowOpacity: 0.4,
+        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 4 },
+        elevation: 8,
     },
     callButtonText: {
-        color: '#B85A6B',
-        fontSize: 16,
-        fontWeight: '700',
+        color: '#FAFAFA',
+        fontSize: 18,
+        fontWeight: '900',
+        letterSpacing: 1,
     },
     cancelButton: {
-        marginTop: 12,
+        marginTop: 12, // Reduced from 16
         width: '100%',
-        maxWidth: 210,
-        minHeight: 52,
+        minHeight: 52, // Reduced from 56
         borderRadius: 999,
-        borderWidth: 2,
-        borderColor: 'rgba(255,255,255,0.65)',
+        backgroundColor: '#18181B',
+        borderWidth: 1,
+        borderColor: '#27272A',
         alignItems: 'center',
         justifyContent: 'center',
     },
     cancelButtonText: {
-        color: '#FFFFFF',
+        color: '#A1A1AA',
         fontSize: 16,
-        fontWeight: '700',
+        fontWeight: '800',
     },
     errorText: {
-        marginTop: 14,
-        color: '#FFFFFF',
-        fontSize: 13,
-        fontWeight: '700',
+        marginTop: 16,
+        color: '#EF4444',
+        fontSize: 14,
+        fontWeight: '800',
         textAlign: 'center',
-        opacity: 0.92,
     },
 });

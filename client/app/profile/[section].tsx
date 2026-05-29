@@ -116,19 +116,19 @@ export default function ProfileSectionScreen() {
 }
 
 function BackendEditProfileScreen({ router }: { router: ReturnType<typeof useRouter> }) {
-    const { token, refreshSession } = useAuth();
+    const { token, refreshSession, user, updateUser } = useAuth();
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [errorMessage, setErrorMessage] = useState('');
     const [fieldValues, setFieldValues] = useState({
-        fullName: '',
-        phone: '',
-        city: '',
-        primaryContact: '',
-        secondaryContact: '',
-        medicalNote: '',
-        emergencyLineNumber: '',
-        profileImageUrl: '',
+        fullName: user?.fullName || '',
+        phone: user?.phone || '',
+        city: user?.city || '',
+        primaryContact: user?.primaryContact || '',
+        secondaryContact: user?.secondaryContact || '',
+        medicalNote: user?.medicalNote || '',
+        emergencyLineNumber: user?.emergencyLineNumber || '',
+        profileImageUrl: user?.profileImageUrl || '',
     });
     const [uploadingImage, setUploadingImage] = useState(false);
 
@@ -160,7 +160,10 @@ function BackendEditProfileScreen({ router }: { router: ReturnType<typeof useRou
                 });
             } catch (error) {
                 if (mounted) {
-                    setErrorMessage(error instanceof Error ? error.message : 'Unable to load profile.');
+                    const message = error instanceof Error ? error.message : 'Unable to load profile.';
+                    if (!message.includes('Unable to reach the auth server')) {
+                        setErrorMessage(message);
+                    }
                 }
             } finally {
                 if (mounted) {
@@ -232,7 +235,23 @@ function BackendEditProfileScreen({ router }: { router: ReturnType<typeof useRou
             Alert.alert('Profile updated', 'Your profile has been saved successfully.');
             router.back();
         } catch (error) {
-            setErrorMessage(error instanceof Error ? error.message : 'Unable to save changes right now.');
+            const message = error instanceof Error ? error.message : 'Unable to save changes right now.';
+            if (message.includes('Unable to reach the auth server')) {
+                updateUser({
+                    fullName: fieldValues.fullName,
+                    phone: fieldValues.phone,
+                    city: fieldValues.city,
+                    primaryContact: fieldValues.primaryContact,
+                    secondaryContact: fieldValues.secondaryContact,
+                    medicalNote: fieldValues.medicalNote,
+                    emergencyLineNumber: fieldValues.emergencyLineNumber,
+                    profileImageUrl: fieldValues.profileImageUrl,
+                });
+                Alert.alert('Saved offline', 'Your profile details will sync when you are back online.');
+                router.back();
+            } else {
+                setErrorMessage(message);
+            }
         } finally {
             setSaving(false);
         }
@@ -242,7 +261,7 @@ function BackendEditProfileScreen({ router }: { router: ReturnType<typeof useRou
         <View style={styles.screen}>
             <View style={styles.header}>
                 <Pressable onPress={() => router.back()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
-                    <MaterialCommunityIcons name="chevron-left" size={26} color="#C84D61" />
+                    <MaterialCommunityIcons name="chevron-left" size={26} color="#FAFAFA" />
                 </Pressable>
 
                 <View style={styles.headerTextWrap}>
@@ -251,7 +270,7 @@ function BackendEditProfileScreen({ router }: { router: ReturnType<typeof useRou
                 </View>
 
                 <View style={styles.headerBadge}>
-                    <MaterialCommunityIcons name="account-edit-outline" size={20} color="#C84D61" />
+                    <MaterialCommunityIcons name="account-edit-outline" size={20} color="#FAFAFA" />
                 </View>
             </View>
 
@@ -262,7 +281,7 @@ function BackendEditProfileScreen({ router }: { router: ReturnType<typeof useRou
                             <Image source={{ uri: fieldValues.profileImageUrl }} style={styles.heroAvatarImage} contentFit="cover" />
                         ) : (
                             <View style={styles.heroIconWrap}>
-                                <MaterialCommunityIcons name="account-edit-outline" size={28} color="#FFFFFF" />
+                                <MaterialCommunityIcons name="account-edit-outline" size={28} color="#FAFAFA" />
                             </View>
                         )}
                     </View>
@@ -272,7 +291,7 @@ function BackendEditProfileScreen({ router }: { router: ReturnType<typeof useRou
                     </Text>
 
                     <Pressable style={styles.photoButton} onPress={() => void pickProfileImage()} accessibilityRole="button" disabled={uploadingImage}>
-                        <MaterialCommunityIcons name="image-edit-outline" size={18} color="#C84D61" />
+                        <MaterialCommunityIcons name="image-edit-outline" size={18} color="#FAFAFA" />
                         <Text style={styles.photoButtonText}>{uploadingImage ? 'Uploading...' : fieldValues.profileImageUrl ? 'Change profile photo' : 'Upload profile photo'}</Text>
                     </Pressable>
                 </View>
@@ -295,7 +314,7 @@ function BackendEditProfileScreen({ router }: { router: ReturnType<typeof useRou
 
                 {errorMessage ? (
                     <View style={styles.tipCard}>
-                        <MaterialCommunityIcons name="alert-circle-outline" size={18} color="#C84D61" />
+                        <MaterialCommunityIcons name="alert-circle-outline" size={18} color="#FAFAFA" />
                         <Text style={styles.tipText}>{errorMessage}</Text>
                     </View>
                 ) : null}
@@ -314,11 +333,11 @@ function BackendEditProfileScreen({ router }: { router: ReturnType<typeof useRou
 }
 
 function BackendEmergencyContactsScreen({ router }: { router: ReturnType<typeof useRouter> }) {
-    const { token, refreshSession } = useAuth();
+    const { token, refreshSession, user, updateUser } = useAuth();
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [errorMessage, setErrorMessage] = useState('');
-    const [contacts, setContacts] = useState<EmergencyContact[]>([]);
+    const [contacts, setContacts] = useState<EmergencyContact[]>(user?.emergencyContacts || []);
     const [mode, setMode] = useState<'add' | 'edit'>('add');
     const [selectedContactId, setSelectedContactId] = useState('');
     const [formValues, setFormValues] = useState({
@@ -346,7 +365,10 @@ function BackendEmergencyContactsScreen({ router }: { router: ReturnType<typeof 
                 setContacts(response.contacts);
             } catch (error) {
                 if (mounted) {
-                    setErrorMessage(error instanceof Error ? error.message : 'Unable to load contacts.');
+                    const message = error instanceof Error ? error.message : 'Unable to load contacts.';
+                    if (!message.includes('Unable to reach the auth server')) {
+                        setErrorMessage(message);
+                    }
                 }
             } finally {
                 if (mounted) {
@@ -399,15 +421,15 @@ function BackendEmergencyContactsScreen({ router }: { router: ReturnType<typeof 
             return;
         }
 
+        const payload = {
+            name: formValues.name.trim(),
+            phone: formValues.phone.trim(),
+            relationship: formValues.relationship.trim(),
+        };
+
         try {
             setSaving(true);
             setErrorMessage('');
-
-            const payload = {
-                name: formValues.name.trim(),
-                phone: formValues.phone.trim(),
-                relationship: formValues.relationship.trim(),
-            };
 
             const response = mode === 'edit' && selectedContactId
                 ? await updateContact(token, selectedContactId, payload)
@@ -417,7 +439,28 @@ function BackendEmergencyContactsScreen({ router }: { router: ReturnType<typeof 
             await refreshSession();
             resetForm();
         } catch (error) {
-            setErrorMessage(error instanceof Error ? error.message : 'Unable to save this contact right now.');
+            const message = error instanceof Error ? error.message : 'Unable to save this contact right now.';
+            if (message.includes('Unable to reach the auth server')) {
+                let nextContacts = contacts;
+                if (mode === 'edit' && selectedContactId) {
+                    nextContacts = contacts.map((c) => (c.id === selectedContactId ? { ...c, ...payload } : c));
+                } else {
+                    nextContacts = [...contacts, {
+                        id: `temp-${Date.now()}`,
+                        name: payload.name,
+                        phone: payload.phone,
+                        relationship: payload.relationship,
+                        initials: payload.name.substring(0, 2).toUpperCase(),
+                        avatar: '#27272A'
+                    }];
+                }
+                setContacts(nextContacts);
+                updateUser({ emergencyContacts: nextContacts });
+                Alert.alert('Saved offline', 'Contact changes will sync when you are back online.');
+                resetForm();
+            } else {
+                setErrorMessage(message);
+            }
         } finally {
             setSaving(false);
         }
@@ -450,7 +493,18 @@ function BackendEmergencyContactsScreen({ router }: { router: ReturnType<typeof 
                                 resetForm();
                             }
                         } catch (error) {
-                            setErrorMessage(error instanceof Error ? error.message : 'Unable to delete this contact right now.');
+                            const message = error instanceof Error ? error.message : 'Unable to delete this contact right now.';
+                            if (message.includes('Unable to reach the auth server')) {
+                                const nextContacts = contacts.filter((c) => c.id !== contact.id);
+                                setContacts(nextContacts);
+                                updateUser({ emergencyContacts: nextContacts });
+                                Alert.alert('Deleted offline', 'Contact will be fully removed when you are back online.');
+                                if (selectedContactId === contact.id) {
+                                    resetForm();
+                                }
+                            } else {
+                                setErrorMessage(message);
+                            }
                         } finally {
                             setSaving(false);
                         }
@@ -464,7 +518,7 @@ function BackendEmergencyContactsScreen({ router }: { router: ReturnType<typeof 
         <View style={styles.screen}>
             <View style={styles.header}>
                 <Pressable onPress={() => router.back()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
-                    <MaterialCommunityIcons name="chevron-left" size={26} color="#C84D61" />
+                    <MaterialCommunityIcons name="chevron-left" size={26} color="#FAFAFA" />
                 </Pressable>
 
                 <View style={styles.headerTextWrap}>
@@ -473,7 +527,7 @@ function BackendEmergencyContactsScreen({ router }: { router: ReturnType<typeof 
                 </View>
 
                 <View style={styles.headerBadge}>
-                    <MaterialCommunityIcons name="account-multiple-outline" size={20} color="#C84D61" />
+                    <MaterialCommunityIcons name="account-multiple-outline" size={20} color="#FAFAFA" />
                 </View>
             </View>
 
@@ -510,7 +564,7 @@ function BackendEmergencyContactsScreen({ router }: { router: ReturnType<typeof 
 
                     {loading ? (
                         <View style={styles.tipCard}>
-                            <MaterialCommunityIcons name="loading" size={18} color="#C84D61" />
+                            <MaterialCommunityIcons name="loading" size={18} color="#FAFAFA" />
                             <Text style={styles.tipText}>Loading contacts...</Text>
                         </View>
                     ) : null}
@@ -530,10 +584,10 @@ function BackendEmergencyContactsScreen({ router }: { router: ReturnType<typeof 
 
                             <View style={styles.contactActionStack}>
                                 <Pressable style={styles.smallActionButton} onPress={() => openEditForm(contact)} accessibilityRole="button">
-                                    <MaterialCommunityIcons name="pencil-outline" size={18} color="#C84D61" />
+                                    <MaterialCommunityIcons name="pencil-outline" size={18} color="#FAFAFA" />
                                 </Pressable>
                                 <Pressable style={styles.smallActionButton} onPress={() => handleDelete(contact)} accessibilityRole="button">
-                                    <MaterialCommunityIcons name="trash-can-outline" size={18} color="#C84D61" />
+                                    <MaterialCommunityIcons name="trash-can-outline" size={18} color="#FAFAFA" />
                                 </Pressable>
                             </View>
                         </View>
@@ -544,7 +598,7 @@ function BackendEmergencyContactsScreen({ router }: { router: ReturnType<typeof 
 
                 {errorMessage ? (
                     <View style={styles.tipCard}>
-                        <MaterialCommunityIcons name="alert-circle-outline" size={18} color="#C84D61" />
+                        <MaterialCommunityIcons name="alert-circle-outline" size={18} color="#FAFAFA" />
                         <Text style={styles.tipText}>{errorMessage}</Text>
                     </View>
                 ) : null}
@@ -560,21 +614,23 @@ function BackendEmergencyContactsScreen({ router }: { router: ReturnType<typeof 
 }
 
 function BackendSafetySettingsScreen({ router }: { router: ReturnType<typeof useRouter> }) {
-    const { token, refreshSession } = useAuth();
+    const { token, refreshSession, user, updateUser } = useAuth();
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [uploadingAudio, setUploadingAudio] = useState(false);
     const [errorMessage, setErrorMessage] = useState('');
+    
+    const settings = user?.safetySettings;
     const [formValues, setFormValues] = useState({
-        sosCountdownSeconds: 10,
-        fakeCallLineNumber: '',
-        sirenPassword: '122',
-        sirenVolume: 'high' as SafetySettings['sirenVolume'],
-        sirenAutoStopSeconds: 60,
-        watchSensitivity: 'medium' as SafetySettings['watchSensitivity'],
-        silentEmergencyMode: 'sound-alarm' as SafetySettings['silentEmergencyMode'],
-        fakeCallAudioUrl: '',
-        fakeCallAudioName: '',
+        sosCountdownSeconds: settings?.sosCountdownSeconds || 10,
+        fakeCallLineNumber: settings?.fakeCallLineNumber || user?.emergencyLineNumber || '',
+        sirenPassword: settings?.sirenPassword || '122',
+        sirenVolume: settings?.sirenVolume || 'high',
+        sirenAutoStopSeconds: settings?.sirenAutoStopSeconds || 60,
+        watchSensitivity: settings?.watchSensitivity || 'medium',
+        silentEmergencyMode: settings?.silentEmergencyMode || 'sound-alarm',
+        fakeCallAudioUrl: settings?.fakeCallAudioUrl || '',
+        fakeCallAudioName: settings?.fakeCallAudioName || '',
     });
 
     useEffect(() => {
@@ -608,7 +664,10 @@ function BackendSafetySettingsScreen({ router }: { router: ReturnType<typeof use
                 });
             } catch (error) {
                 if (mounted) {
-                    setErrorMessage(error instanceof Error ? error.message : 'Unable to load safety settings.');
+                    const message = error instanceof Error ? error.message : 'Unable to load safety settings.';
+                    if (!message.includes('Unable to reach the auth server')) {
+                        setErrorMessage(message);
+                    }
                 }
             } finally {
                 if (mounted) {
@@ -691,7 +750,20 @@ function BackendSafetySettingsScreen({ router }: { router: ReturnType<typeof use
             Alert.alert('Safety settings saved', 'Your emergency behavior settings have been updated.');
             router.back();
         } catch (error) {
-            setErrorMessage(error instanceof Error ? error.message : 'Unable to save safety settings right now.');
+            const message = error instanceof Error ? error.message : 'Unable to save safety settings right now.';
+            if (message.includes('Unable to reach the auth server')) {
+                updateUser({
+                    emergencyLineNumber: formValues.fakeCallLineNumber,
+                    safetySettings: {
+                        ...(user?.safetySettings as SafetySettings),
+                        ...formValues,
+                    }
+                });
+                Alert.alert('Saved offline', 'Your safety settings will sync when you are back online.');
+                router.back();
+            } else {
+                setErrorMessage(message);
+            }
         } finally {
             setSaving(false);
         }
@@ -701,7 +773,7 @@ function BackendSafetySettingsScreen({ router }: { router: ReturnType<typeof use
         <View style={styles.screen}>
             <View style={styles.header}>
                 <Pressable onPress={() => router.back()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
-                    <MaterialCommunityIcons name="chevron-left" size={26} color="#C84D61" />
+                    <MaterialCommunityIcons name="chevron-left" size={26} color="#FAFAFA" />
                 </Pressable>
 
                 <View style={styles.headerTextWrap}>
@@ -710,7 +782,7 @@ function BackendSafetySettingsScreen({ router }: { router: ReturnType<typeof use
                 </View>
 
                 <View style={styles.headerBadge}>
-                    <MaterialCommunityIcons name="shield-lock-outline" size={20} color="#C84D61" />
+                    <MaterialCommunityIcons name="shield-lock-outline" size={20} color="#FAFAFA" />
                 </View>
             </View>
 
@@ -718,7 +790,7 @@ function BackendSafetySettingsScreen({ router }: { router: ReturnType<typeof use
                 <View style={styles.summaryCard}>
                     <View style={styles.summaryRow}>
                         <View style={styles.summaryIconWrap}>
-                            <MaterialCommunityIcons name="shield-lock-outline" size={22} color="#C84D61" />
+                            <MaterialCommunityIcons name="shield-lock-outline" size={22} color="#FAFAFA" />
                         </View>
                         <View style={styles.summaryTextWrap}>
                             <Text style={styles.summaryTitle}>Emergency behavior</Text>
@@ -769,7 +841,7 @@ function BackendSafetySettingsScreen({ router }: { router: ReturnType<typeof use
                     <Text style={styles.sectionFormHelper}>Choose a ringtone or audio clip that the fake incoming call should play.</Text>
 
                     <Pressable style={styles.photoButton} onPress={() => void pickFakeCallAudio()} accessibilityRole="button" disabled={uploadingAudio}>
-                        <MaterialCommunityIcons name="music-note-plus" size={18} color="#C84D61" />
+                        <MaterialCommunityIcons name="music-note-plus" size={18} color="#FAFAFA" />
                         <Text style={styles.photoButtonText}>{uploadingAudio ? 'Uploading...' : formValues.fakeCallAudioName ? 'Change ringtone' : 'Select ringtone audio'}</Text>
                     </Pressable>
 
@@ -819,7 +891,7 @@ function BackendSafetySettingsScreen({ router }: { router: ReturnType<typeof use
 
                 {errorMessage ? (
                     <View style={styles.tipCard}>
-                        <MaterialCommunityIcons name="alert-circle-outline" size={18} color="#C84D61" />
+                        <MaterialCommunityIcons name="alert-circle-outline" size={18} color="#FAFAFA" />
                         <Text style={styles.tipText}>{errorMessage}</Text>
                     </View>
                 ) : null}
@@ -860,7 +932,7 @@ function LocalSectionScreen({ router, slug }: { router: ReturnType<typeof useRou
         <View style={styles.screen}>
             <View style={styles.header}>
                 <Pressable onPress={() => router.back()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
-                    <MaterialCommunityIcons name="chevron-left" size={26} color="#C84D61" />
+                    <MaterialCommunityIcons name="chevron-left" size={26} color="#FAFAFA" />
                 </Pressable>
 
                 <View style={styles.headerTextWrap}>
@@ -869,14 +941,14 @@ function LocalSectionScreen({ router, slug }: { router: ReturnType<typeof useRou
                 </View>
 
                 <View style={styles.headerBadge}>
-                    <MaterialCommunityIcons name={config.icon} size={20} color="#C84D61" />
+                    <MaterialCommunityIcons name={config.icon} size={20} color="#FAFAFA" />
                 </View>
             </View>
 
             <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} showsVerticalScrollIndicator={false}>
                 <View style={styles.heroCard}>
                     <View style={styles.heroIconWrap}>
-                        <MaterialCommunityIcons name={config.icon} size={28} color="#FFFFFF" />
+                        <MaterialCommunityIcons name={config.icon} size={28} color="#FAFAFA" />
                     </View>
                     <Text style={styles.heroTitle}>{config.title}</Text>
                     <Text style={styles.heroText}>{config.helper}</Text>
@@ -903,7 +975,7 @@ function LocalSectionScreen({ router, slug }: { router: ReturnType<typeof useRou
                 </View>
 
                 <View style={styles.tipCard}>
-                    <MaterialCommunityIcons name="information-outline" size={18} color="#C84D61" />
+                    <MaterialCommunityIcons name="information-outline" size={18} color="#FAFAFA" />
                     <Text style={styles.tipText}>This section is still local UI only. The Edit profile option is now backed by MongoDB.</Text>
                 </View>
             </ScrollView>
@@ -958,155 +1030,217 @@ function ProfileInput({
 const styles = StyleSheet.create({
     screen: {
         flex: 1,
-        backgroundColor: '#C84D61',
-        paddingTop: 42,
-        paddingHorizontal: 18,
-        paddingBottom: 18,
+        backgroundColor: '#09090B',
     },
     header: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 12,
-        marginBottom: 18,
+        paddingHorizontal: 20,
+        paddingTop: 48,
+        paddingBottom: 20,
+        gap: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#18181B',
     },
     backButton: {
-        width: 42,
-        height: 42,
-        borderRadius: 21,
-        backgroundColor: '#FFFFFF',
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: '#18181B',
         alignItems: 'center',
         justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#27272A',
     },
     headerTextWrap: {
         flex: 1,
     },
     headerTitle: {
-        color: '#FFFFFF',
-        fontSize: 22,
+        color: '#FAFAFA',
+        fontSize: 20,
         fontWeight: '900',
     },
     headerSubtitle: {
-        color: 'rgba(255,255,255,0.82)',
-        fontSize: 12,
-        fontWeight: '700',
+        color: '#A1A1AA',
+        fontSize: 13,
+        fontWeight: '600',
         marginTop: 2,
     },
     headerBadge: {
-        width: 42,
-        height: 42,
-        borderRadius: 21,
-        backgroundColor: '#FFFFFF',
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: '#18181B',
         alignItems: 'center',
         justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#27272A',
     },
     body: {
         flex: 1,
     },
     bodyContent: {
-        gap: 14,
-        paddingBottom: 20,
+        padding: 20,
+        gap: 16,
+        paddingBottom: 100,
     },
     heroCard: {
-        borderRadius: 28,
-        backgroundColor: 'rgba(255,255,255,0.96)',
-        padding: 20,
         alignItems: 'center',
-        gap: 10,
+        padding: 24,
+        backgroundColor: '#18181B',
+        borderRadius: 28,
+        borderWidth: 1,
+        borderColor: '#27272A',
+        gap: 12,
     },
     heroAvatarWrap: {
-        width: 92,
-        height: 92,
-        borderRadius: 46,
-        borderWidth: 4,
-        borderColor: 'rgba(200,77,97,0.12)',
-        overflow: 'hidden',
+        width: 96,
+        height: 96,
+        borderRadius: 48,
+        backgroundColor: '#27272A',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: '#F8EEF0',
+        borderWidth: 4,
+        borderColor: '#09090B',
     },
     heroIconWrap: {
-        width: '100%',
-        height: '100%',
-        borderRadius: 46,
-        backgroundColor: '#C84D61',
+        width: 80,
+        height: 80,
+        borderRadius: 40,
+        backgroundColor: '#27272A',
         alignItems: 'center',
         justifyContent: 'center',
     },
     heroAvatarImage: {
         width: '100%',
         height: '100%',
+        borderRadius: 48,
     },
     heroTitle: {
-        color: '#1D1D1F',
+        color: '#FAFAFA',
         fontSize: 20,
         fontWeight: '900',
     },
     heroText: {
-        color: '#7D6A70',
-        textAlign: 'center',
+        color: '#A1A1AA',
         fontSize: 13,
-        lineHeight: 19,
+        textAlign: 'center',
         fontWeight: '600',
+        lineHeight: 18,
     },
     photoButton: {
-        minHeight: 44,
-        borderRadius: 999,
+        marginTop: 8,
         paddingHorizontal: 16,
-        backgroundColor: '#F8EEF0',
+        paddingVertical: 10,
+        borderRadius: 999,
+        backgroundColor: '#27272A',
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
-        marginTop: 4,
     },
     photoButtonText: {
-        color: '#C84D61',
+        color: '#FAFAFA',
         fontSize: 13,
         fontWeight: '800',
     },
-    choiceRow: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 10,
+    sectionCard: {
+        borderRadius: 28,
+        backgroundColor: '#18181B',
+        padding: 20,
+        gap: 16,
+        borderWidth: 1,
+        borderColor: '#27272A',
+    },
+    sectionHeader: {
+        gap: 4,
+    },
+    sectionTitle: {
+        color: '#FAFAFA',
+        fontSize: 18,
+        fontWeight: '900',
+    },
+    sectionSubtitle: {
+        color: '#71717A',
+        fontSize: 13,
+        fontWeight: '600',
+    },
+    settingRow: {
+        gap: 8,
+        paddingBottom: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#27272A',
+    },
+    settingRowLast: {
+        borderBottomWidth: 0,
+        paddingBottom: 0,
+    },
+    settingLabel: {
+        color: '#A1A1AA',
+        fontSize: 12,
+        fontWeight: '800',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
+    
+    choiceBlock: {
+        gap: 8,
+        paddingBottom: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#27272A',
     },
     choiceStack: {
-        gap: 10,
+        gap: 8,
     },
-    choiceBlock: {
-        gap: 10,
+    choiceGroup: {
+        gap: 12,
+        marginTop: 4,
+    },
+    choiceRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingVertical: 8,
+    },
+    choiceTextWrap: {
+        flex: 1,
+        gap: 4,
     },
     choiceLabel: {
-        color: '#1D1D1F',
-        fontSize: 14,
+        color: '#FAFAFA',
+        fontSize: 15,
         fontWeight: '800',
     },
     choiceDescription: {
-        color: '#7D6A70',
-        fontSize: 12,
-        lineHeight: 17,
+        color: '#71717A',
+        fontSize: 13,
+        lineHeight: 18,
         fontWeight: '600',
     },
     choiceChip: {
         minHeight: 44,
-        paddingHorizontal: 14,
+        paddingHorizontal: 16,
         borderRadius: 999,
-        backgroundColor: '#F8EEF0',
+        backgroundColor: '#09090B',
         alignItems: 'center',
         justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#27272A',
     },
     choiceChipActive: {
-        backgroundColor: '#C84D61',
+        backgroundColor: '#EF4444',
+        borderColor: '#EF4444',
     },
     choiceChipText: {
-        color: '#C84D61',
+        color: '#A1A1AA',
         fontSize: 13,
         fontWeight: '800',
     },
     choiceChipTextActive: {
-        color: '#FFFFFF',
+        color: '#FAFAFA',
     },
     ringtoneMetaText: {
-        color: '#7D6A70',
-        fontSize: 12,
+        color: '#A1A1AA',
+        fontSize: 13,
         fontWeight: '600',
         lineHeight: 18,
     },
@@ -1121,36 +1255,33 @@ const styles = StyleSheet.create({
         gap: 4,
     },
     toggleChip: {
-        width: 54,
+        width: 56,
         height: 32,
         borderRadius: 16,
-        backgroundColor: '#EAD8DC',
+        backgroundColor: '#27272A',
         padding: 4,
         justifyContent: 'center',
     },
     toggleChipActive: {
-        backgroundColor: '#C84D61',
+        backgroundColor: '#10B981',
     },
     toggleDot: {
         width: 24,
         height: 24,
         borderRadius: 12,
-        backgroundColor: '#FFFFFF',
+        backgroundColor: '#FAFAFA',
         alignSelf: 'flex-start',
     },
     toggleDotActive: {
         alignSelf: 'flex-end',
     },
     summaryCard: {
-        borderRadius: 28,
-        backgroundColor: 'rgba(255,255,255,0.98)',
-        padding: 18,
+        borderRadius: 24,
+        backgroundColor: '#18181B',
+        padding: 20,
         gap: 14,
-        shadowColor: '#7A2434',
-        shadowOpacity: 0.1,
-        shadowRadius: 16,
-        shadowOffset: { width: 0, height: 8 },
-        elevation: 6,
+        borderWidth: 1,
+        borderColor: '#27272A',
     },
     summaryRow: {
         flexDirection: 'row',
@@ -1161,7 +1292,7 @@ const styles = StyleSheet.create({
         width: 44,
         height: 44,
         borderRadius: 22,
-        backgroundColor: '#F8EEF0',
+        backgroundColor: '#27272A',
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -1170,14 +1301,14 @@ const styles = StyleSheet.create({
         gap: 4,
     },
     summaryTitle: {
-        color: '#1D1D1F',
-        fontSize: 18,
+        color: '#FAFAFA',
+        fontSize: 16,
         fontWeight: '900',
     },
     summaryText: {
-        color: '#7D6A70',
+        color: '#71717A',
         fontSize: 13,
-        lineHeight: 19,
+        lineHeight: 20,
         fontWeight: '600',
     },
     summaryActions: {
@@ -1189,93 +1320,98 @@ const styles = StyleSheet.create({
         flex: 1,
         minHeight: 50,
         borderRadius: 999,
-        backgroundColor: '#C84D61',
+        backgroundColor: '#EF4444',
         alignItems: 'center',
         justifyContent: 'center',
         flexDirection: 'row',
         gap: 8,
     },
     primaryInlineButtonText: {
-        color: '#FFFFFF',
+        color: '#FAFAFA',
         fontSize: 14,
         fontWeight: '900',
     },
     countBadge: {
         minHeight: 50,
         borderRadius: 999,
-        paddingHorizontal: 14,
-        backgroundColor: '#F8EEF0',
+        paddingHorizontal: 16,
+        backgroundColor: '#27272A',
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 6,
+        gap: 8,
     },
     countBadgeText: {
-        color: '#C84D61',
-        fontSize: 13,
+        color: '#FAFAFA',
+        fontSize: 14,
         fontWeight: '800',
     },
     sectionFormTitle: {
-        color: '#1D1D1F',
+        color: '#FAFAFA',
         fontSize: 18,
         fontWeight: '900',
     },
     sectionFormHelper: {
-        color: '#7D6A70',
+        color: '#A1A1AA',
         fontSize: 13,
-        lineHeight: 19,
+        lineHeight: 20,
         fontWeight: '600',
     },
     formCard: {
         borderRadius: 28,
-        backgroundColor: 'rgba(255,255,255,0.96)',
-        padding: 18,
-        gap: 12,
+        backgroundColor: '#18181B',
+        padding: 20,
+        gap: 16,
+        borderWidth: 1,
+        borderColor: '#27272A',
     },
     fieldBlock: {
         gap: 8,
-        paddingBottom: 12,
+        paddingBottom: 16,
         borderBottomWidth: 1,
-        borderBottomColor: 'rgba(200,77,97,0.08)',
+        borderBottomColor: '#27272A',
     },
     fieldBlockLast: {
         paddingBottom: 0,
         borderBottomWidth: 0,
     },
     fieldLabel: {
-        color: '#8F6A73',
+        color: '#71717A',
         fontSize: 12,
         fontWeight: '800',
         textTransform: 'uppercase',
-        letterSpacing: 0.6,
+        letterSpacing: 0.5,
     },
     input: {
-        minHeight: 48,
+        minHeight: 52,
         borderRadius: 16,
-        backgroundColor: '#F8EEF0',
-        paddingHorizontal: 14,
-        color: '#1D1D1F',
-        fontSize: 14,
-        fontWeight: '700',
+        backgroundColor: '#09090B',
+        borderWidth: 1,
+        borderColor: '#27272A',
+        paddingHorizontal: 16,
+        color: '#FAFAFA',
+        fontSize: 15,
+        fontWeight: '600',
     },
     textArea: {
-        minHeight: 92,
-        paddingTop: 12,
+        minHeight: 100,
+        paddingTop: 16,
+        textAlignVertical: 'top',
     },
     contactFormActions: {
         flexDirection: 'row',
         gap: 10,
-        marginTop: 4,
+        marginTop: 8,
     },
     formGhostButton: {
         minHeight: 52,
         borderRadius: 999,
-        paddingHorizontal: 16,
+        paddingHorizontal: 20,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: '#F8EEF0',
+        backgroundColor: '#27272A',
     },
     formGhostButtonText: {
-        color: '#C84D61',
+        color: '#FAFAFA',
         fontSize: 14,
         fontWeight: '800',
     },
@@ -1283,9 +1419,9 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 12,
-        paddingVertical: 10,
+        paddingVertical: 14,
         borderBottomWidth: 1,
-        borderBottomColor: 'rgba(200,77,97,0.08)',
+        borderBottomColor: '#27272A',
     },
     contactAvatar: {
         width: 48,
@@ -1295,54 +1431,58 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     contactAvatarText: {
-        color: '#FFFFFF',
-        fontSize: 15,
+        color: '#FAFAFA',
+        fontSize: 16,
         fontWeight: '900',
     },
     contactDetails: {
         flex: 1,
-        gap: 2,
+        gap: 4,
     },
     contactName: {
-        color: '#1D1D1F',
-        fontSize: 15,
+        color: '#FAFAFA',
+        fontSize: 16,
         fontWeight: '900',
     },
     contactPhone: {
-        color: '#7D6A70',
-        fontSize: 12,
-        fontWeight: '700',
+        color: '#A1A1AA',
+        fontSize: 13,
+        fontWeight: '600',
     },
     contactRelationship: {
-        color: '#8F6A73',
-        fontSize: 11,
+        color: '#71717A',
+        fontSize: 12,
         fontWeight: '700',
+        textTransform: 'uppercase',
     },
     appUserBadge: {
-        color: '#2F7E52',
-        fontSize: 11,
+        color: '#10B981',
+        fontSize: 12,
         fontWeight: '800',
+        marginTop: 2,
     },
     nonAppUserBadge: {
-        color: '#B85A6B',
-        fontSize: 11,
+        color: '#EF4444',
+        fontSize: 12,
         fontWeight: '800',
+        marginTop: 2,
     },
     contactActionStack: {
+        flexDirection: 'row',
         gap: 8,
     },
     smallActionButton: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        backgroundColor: '#F8EEF0',
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: '#27272A',
         alignItems: 'center',
         justifyContent: 'center',
     },
     emptyText: {
-        color: '#7D6A70',
-        fontSize: 13,
-        lineHeight: 19,
+        color: '#71717A',
+        fontSize: 14,
+        lineHeight: 20,
         fontWeight: '600',
     },
     listHeaderRow: {
@@ -1352,64 +1492,66 @@ const styles = StyleSheet.create({
         gap: 12,
     },
     listMetaText: {
-        color: '#B85A6B',
-        fontSize: 12,
+        color: '#A1A1AA',
+        fontSize: 13,
         fontWeight: '800',
     },
     tipCard: {
-        borderRadius: 22,
-        backgroundColor: 'rgba(255,255,255,0.92)',
+        borderRadius: 20,
+        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+        borderWidth: 1,
+        borderColor: 'rgba(239, 68, 68, 0.3)',
         padding: 16,
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 10,
+        gap: 12,
     },
     tipText: {
         flex: 1,
-        color: '#7D6A70',
+        color: '#FAFAFA',
         fontSize: 13,
-        lineHeight: 18,
+        lineHeight: 20,
         fontWeight: '600',
     },
     loadingText: {
-        color: '#7D6A70',
-        fontSize: 14,
+        color: '#71717A',
+        fontSize: 15,
         fontWeight: '700',
     },
     footer: {
         flexDirection: 'row',
         gap: 12,
-        paddingTop: 6,
+        paddingTop: 8,
     },
     secondaryButton: {
         flex: 1,
-        minHeight: 54,
+        minHeight: 56,
         borderRadius: 999,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: 'rgba(255,255,255,0.16)',
+        backgroundColor: '#18181B',
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.45)',
+        borderColor: '#27272A',
     },
     secondaryButtonText: {
-        color: '#FFFFFF',
-        fontSize: 15,
+        color: '#FAFAFA',
+        fontSize: 16,
         fontWeight: '800',
     },
     primaryButton: {
         flex: 1,
-        minHeight: 54,
+        minHeight: 56,
         borderRadius: 999,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: '#FFFFFF',
+        backgroundColor: '#EF4444',
     },
     primaryButtonDisabled: {
-        opacity: 0.7,
+        opacity: 0.5,
     },
     primaryButtonText: {
-        color: '#C84D61',
-        fontSize: 15,
+        color: '#FAFAFA',
+        fontSize: 16,
         fontWeight: '800',
     },
 });
